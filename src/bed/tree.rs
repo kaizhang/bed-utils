@@ -131,6 +131,42 @@ impl<B: BEDLike> FromIterator<B> for GenomeRegions<B> {
     }
 }
 
+pub struct BinnedCoverage<'a, B, N> {
+    genome_regions: &'a GenomeRegions<B>,
+    pub bin_size: u64,
+    pub coverage: Vec<Vec<N>>,
+    pub consumed_tags: u64,
+}
+
+impl <'a, N: Num + NumAssignOps + Copy, B: BEDLike> BinnedCoverage<'a, B, N> {
+    pub fn new(genome_regions: &'a GenomeRegions<B>, bin_size: u64) -> Self {
+        let coverage: Vec<Vec<N>> = genome_regions.regions.iter()
+            .map(|x| vec![N::zero(); x.len().div_ceil(&bin_size) as usize])
+            .collect();
+        Self {genome_regions, bin_size, coverage, consumed_tags: 0}
+    }
+
+    pub fn update<D>(&mut self, tag: &D)
+    where
+        D: BEDLike,
+    {
+        self.consumed_tags += 1;
+        self.genome_regions.indices.find(tag).for_each(|(region, out_idx)| {
+            let i = tag.start().saturating_sub(region.start()).div_floor(&self.bin_size);
+            let j = (tag.end() - 1 - region.start())
+                .min(region.len() - 1).div_floor(&self.bin_size);
+            (i..=j).for_each(|in_idx| self.coverage[*out_idx][in_idx as usize] += N::one());
+        });
+    }
+
+    pub fn get_regions(&'a self) -> impl Iterator<Item = impl Iterator<Item = B>> + 'a
+    where
+        B: Clone
+    {
+        self.genome_regions.regions.iter()
+            .map(|x| super::split_by_len(x, self.bin_size))
+    }
+}
 
 #[cfg(test)]
 mod bed_intersect_tests {
