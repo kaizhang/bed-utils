@@ -133,6 +133,7 @@ impl<B: BEDLike> FromIterator<B> for GenomeRegions<B> {
 
 pub struct BinnedCoverage<'a, B, N> {
     genome_regions: &'a GenomeRegions<B>,
+    pub size: u64,
     pub bin_size: u64,
     pub coverage: Vec<Vec<N>>,
     pub consumed_tags: u64,
@@ -143,10 +144,16 @@ impl <'a, N: Num + NumAssignOps + Copy, B: BEDLike> BinnedCoverage<'a, B, N> {
         let coverage: Vec<Vec<N>> = genome_regions.regions.iter()
             .map(|x| vec![N::zero(); x.len().div_ceil(&bin_size) as usize])
             .collect();
-        Self {genome_regions, bin_size, coverage, consumed_tags: 0}
+        let size = coverage.iter().map(|x| x.len() as u64).sum();
+        Self {genome_regions, size, bin_size, coverage, consumed_tags: 0}
     }
 
-    pub fn update<D>(&mut self, tag: &D)
+    pub fn reset(&mut self) {
+        self.consumed_tags = 0;
+        self.coverage.iter_mut().for_each(|x| x.fill(N::zero()));
+    }
+
+    pub fn add<D>(&mut self, tag: &D)
     where
         D: BEDLike,
     {
