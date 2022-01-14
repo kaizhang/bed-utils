@@ -135,7 +135,7 @@ pub struct BinnedCoverage<'a, B, N> {
     genome_regions: &'a GenomeRegions<B>,
     pub size: u64,
     pub bin_size: u64,
-    pub coverage: Vec<Vec<N>>,
+    coverage: Vec<Vec<N>>,
     pub consumed_tags: u64,
 }
 
@@ -173,6 +173,8 @@ impl <'a, N: Num + NumAssignOps + Copy, B: BEDLike> BinnedCoverage<'a, B, N> {
         self.genome_regions.regions.iter()
             .map(|x| super::split_by_len(x, self.bin_size))
     }
+
+    pub fn get_coverage(&self) -> &Vec<Vec<N>> { &self.coverage }
 }
 
 #[cfg(test)]
