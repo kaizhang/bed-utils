@@ -71,8 +71,8 @@ impl<D> BedTree<D> {
 }
 
 pub struct GenomeRegions<B> {
-    regions: Vec<B>,
-    indices: BedTree<usize>,
+    pub regions: Vec<B>,
+    pub indices: BedTree<usize>,
 }
 
 // TODO: add tests.
