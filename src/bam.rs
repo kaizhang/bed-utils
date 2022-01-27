@@ -12,7 +12,10 @@ pub fn bam_to_bed(refs: &IndexMap<String, ReferenceSequence, RandomState>,
     let start_loc: i32 = record.alignment_start()?.into();
     let end_loc: i32 = record.alignment_end()?.unwrap().into();
     let name = record.read_name().unwrap().to_str().unwrap().to_string();
-    let score = record.mapping_quality().map(|x| Score::try_from(x as u16).unwrap());
+    let score = record.mapping_quality().map(|x| {
+        let x_: u8 = x.into();
+        Score::try_from(x_ as u16).unwrap()
+    });
     let strand = if record.flags().is_reverse_complemented()
         { Strand::Reverse } else { Strand::Forward };
     Some(BED::new(chr, (start_loc - 1) as u64, end_loc as u64,
