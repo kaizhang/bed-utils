@@ -39,7 +39,8 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         self.buf.clear();
         match self.inner.read_record(&mut self.buf) {
-            Ok(0) => None,
+            Ok(LineSize::Size(0)) => None,
+            Ok(LineSize::Skip) => self.next(),
             Ok(_) => Some(self.buf.parse().map_err(
                 |e| Error::new(ErrorKind::Other, format!("{:?}: {}", e, &self.buf))
             )),
@@ -77,7 +78,8 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         self.buf.clear();
         match self.inner.read_record(&mut self.buf) {
-            Ok(0) => None,
+            Ok(LineSize::Size(0)) => None,
+            Ok(LineSize::Skip) => self.next(),
             Ok(_) => Some(self.buf.parse().map_err(
                 |e| Error::new(ErrorKind::Other, format!("{:?}: {}", e, &self.buf))
             )),
@@ -89,6 +91,7 @@ where
 /// A BED reader.
 pub struct Reader<R> {
     inner: BufReader<R>,
+    skip_start_with: Option<String>,
 }
 
 impl<R> Reader<R>
@@ -96,13 +99,18 @@ where
     R: Read,
 {
     /// Creates a BED reader.
-    pub fn new(inner: R) -> Self {
-        Self { inner: BufReader::new(inner) }
+    pub fn new(inner: R, skip_start_with: Option<String>) -> Self {
+        Self { inner: BufReader::new(inner), skip_start_with }
     }
 
     /// Reads a single raw BED record.
-    pub fn read_record(&mut self, buf: &mut String) -> io::Result<usize> {
-        read_line(&mut self.inner, buf)
+    pub fn read_record(&mut self, buf: &mut String) -> io::Result<LineSize> {
+        let size = read_line(&mut self.inner, buf)?;
+        if size > 0 && self.skip_start_with.as_ref().map_or(false, |x| buf.starts_with(x)) {
+            Ok(LineSize::Skip)
+        } else {
+            Ok(LineSize::Size(size))
+        }
     }
 
     /// Returns an iterator over records starting from the current stream position.
@@ -116,6 +124,11 @@ where
     pub fn into_records<B: FromStr>(self) -> IntoRecords<B, R> {
         IntoRecords::new(self)
     }
+}
+
+pub enum LineSize {
+    Size(usize),
+    Skip,
 }
 
 fn read_line<R>(reader: &mut R, buf: &mut String) -> io::Result<usize>
@@ -168,7 +181,7 @@ chr1	200	1000	r1	100	+
 chr2	220	2000	r2	2	-
 chr10	2000	10000	r3	3	+
 " as &[u8];
-        let mut reader = Reader::new(data);
+        let mut reader = Reader::new(data, None);
         for b in reader.records() {
             let x: BED<6> = b.unwrap();
             println!("{}", x);
