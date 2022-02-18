@@ -89,6 +89,7 @@ impl<B: BEDLike> FromIterator<B> for GenomeRegions<B> {
     }
 }
 
+#[derive(Clone)]
 pub struct Coverage<'a, B, N> {
     pub consumed_tags: u64,
     genome_regions: &'a GenomeRegions<B>,
@@ -118,8 +119,6 @@ impl <'a, N: Num + NumAssignOps + Copy, B: BEDLike> Coverage<'a, B, N> {
     }
 
     pub fn get_regions(&'a self) -> impl Iterator<Item = &B> + 'a
-    where
-        B: Clone
     {
         self.genome_regions.regions.iter()
     }
@@ -128,6 +127,7 @@ impl <'a, N: Num + NumAssignOps + Copy, B: BEDLike> Coverage<'a, B, N> {
 }
 
 
+#[derive(Clone)]
 pub struct SparseCoverage<'a, B, N> {
     pub consumed_tags: u64,
     genome_regions: &'a GenomeRegions<B>,
@@ -160,8 +160,6 @@ impl <'a, N: Num + NumAssignOps + Copy, B: BEDLike> SparseCoverage<'a, B, N> {
     }
 
     pub fn get_regions(&'a self) -> impl Iterator<Item = &B> + 'a
-    where
-        B: Clone
     {
         self.genome_regions.regions.iter()
     }
@@ -175,6 +173,7 @@ impl <'a, N: Num + NumAssignOps + Copy, B: BEDLike> SparseCoverage<'a, B, N> {
     }
 }
 
+#[derive(Clone)]
 pub struct BinnedCoverage<'a, B, N> {
     pub len: usize,
     pub bin_size: u64,
@@ -212,7 +211,7 @@ impl <'a, N: Num + NumAssignOps + Copy, B: BEDLike> BinnedCoverage<'a, B, N> {
 
     pub fn get_regions(&'a self) -> impl Iterator<Item = impl Iterator<Item = B>> + 'a
     where
-        B: Clone
+        B: Clone,
     {
         self.genome_regions.regions.iter()
             .map(|x| super::split_by_len(x, self.bin_size))
@@ -221,6 +220,7 @@ impl <'a, N: Num + NumAssignOps + Copy, B: BEDLike> BinnedCoverage<'a, B, N> {
     pub fn get_coverage(&self) -> &Vec<Vec<N>> { &self.coverage }
 }
 
+#[derive(Clone)]
 pub struct SparseBinnedCoverage<'a, B, N> {
     pub len: usize,
     pub bin_size: u64,
@@ -269,7 +269,7 @@ impl <'a, N: Num + NumAssignOps + Copy, B: BEDLike> SparseBinnedCoverage<'a, B, 
 
     pub fn get_regions(&'a self) -> impl Iterator<Item = impl Iterator<Item = B>> + 'a
     where
-        B: Clone
+        B: Clone,
     {
         self.genome_regions.regions.iter()
             .map(|x| split_by_len(x, self.bin_size))
