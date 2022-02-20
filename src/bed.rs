@@ -26,6 +26,18 @@ impl GenomicRange {
     { Self(chrom.into(), start, end) }
 }
 
+impl FromStr for GenomicRange {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut fields = s.split(DELIMITER);
+        let chrom = parse_chrom(&mut fields)?;
+        let start = parse_start(&mut fields)?;
+        let end = parse_end(&mut fields)?;
+        Ok(GenomicRange::new(chrom, start, end))
+    }
+}
+
 /// A standard BED record.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BED<const N: u8> {

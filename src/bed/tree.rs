@@ -307,13 +307,14 @@ mod bed_intersect_tests {
 
     #[test]
     fn test_coverage() {
-        let bed_set1: Vec<GenomicRange> = vec![
+        let regions: GenomeRegions<GenomicRange> = vec![
             GenomicRange::new("chr1".to_string(), 200, 500),
             GenomicRange::new("chr1".to_string(), 1000, 2000),
             GenomicRange::new("chr1".to_string(), 10000, 11000),
             GenomicRange::new("chr10".to_string(), 10, 20),
-        ];
-        let bed_set2: Vec<GenomicRange> = vec![
+            GenomicRange::new("chr1".to_string(), 200, 500),
+        ].into_iter().collect();
+        let tags: Vec<GenomicRange> = vec![
             GenomicRange::new("chr1".to_string(), 100, 210),
             GenomicRange::new("chr1".to_string(), 100, 500),
             GenomicRange::new("chr1".to_string(), 100, 5000),
@@ -321,23 +322,21 @@ mod bed_intersect_tests {
             GenomicRange::new("chr1".to_string(), 1000, 1001),
         ];
 
-        let regions: GenomeRegions<GenomicRange> = bed_set1.into_iter().collect();
-
         let mut cov1 = Coverage::new(&regions);
-        bed_set2.iter().for_each(|x| cov1.insert(x, 1));
+        tags.iter().for_each(|x| cov1.insert(x, 1));
         let result1: Vec<u64> = cov1.get_coverage().to_vec();
         let mut cov2 = SparseCoverage::new(&regions);
-        bed_set2.iter().for_each(|x| cov2.insert(x, 1));
+        tags.iter().for_each(|x| cov2.insert(x, 1));
         let result2: Vec<u64> = cov2.get_coverage_as_vec();
 
         assert_eq!(result1, result2);
-        assert_eq!(result1, vec![3, 2, 0, 0]);
+        assert_eq!(result1, vec![3, 2, 0, 0, 3]);
 
         let mut cov3 = BinnedCoverage::new(&regions, 100);
-        bed_set2.iter().for_each(|x| cov3.insert(x, 1));
+        tags.iter().for_each(|x| cov3.insert(x, 1));
         let result3: Vec<u64> = cov3.get_coverage().iter().flatten().map(|x| *x).collect();
         let mut cov4 = SparseBinnedCoverage::new(&regions, 100);
-        bed_set2.iter().for_each(|x| cov4.insert(x, 1));
+        tags.iter().for_each(|x| cov4.insert(x, 1));
         let result4: Vec<u64> = cov4.get_coverage_as_vec();
 
         assert_eq!(result3, result4);
@@ -348,6 +347,7 @@ mod bed_intersect_tests {
                 2, 1, 1, 1, 1, 1, 1, 1, 1, 1,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0,
+                3, 2, 2,
             ]
         );
     }
