@@ -44,10 +44,10 @@ pub struct BED<const N: u8> {
     chrom: String,
     start: u64,
     end: u64,
-    name: Option<String>,
-    score: Option<Score>,
-    strand: Option<Strand>,
-    optional_fields: OptionalFields,
+    pub name: Option<String>,
+    pub score: Option<Score>,
+    pub strand: Option<Strand>,
+    pub optional_fields: OptionalFields,
 }
 
 impl<const N: u8> BED<N> {
