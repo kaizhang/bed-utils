@@ -1,5 +1,7 @@
+use crate::bed::BEDLike;
+
 use std::{
-    io::{self, Error, ErrorKind, Read, BufRead, BufReader},
+    io::{self, Error, ErrorKind, Read, Write, BufRead, BufReader},
 };
 use std::str::FromStr;
 use std::marker::PhantomData;
@@ -117,11 +119,11 @@ where
     ///
     /// The stream is expected to be at the start of a record.
     ///
-    pub fn records<B: FromStr>(&mut self) -> Records<'_, B, R> {
+    pub fn records<B: FromStr + BEDLike>(&mut self) -> Records<'_, B, R> {
         Records::new(self)
     }
 
-    pub fn into_records<B: FromStr>(self) -> IntoRecords<B, R> {
+    pub fn into_records<B: FromStr + BEDLike>(self) -> IntoRecords<B, R> {
         IntoRecords::new(self)
     }
 }
@@ -151,6 +153,22 @@ where
             Ok(n)
         }
         Err(e) => Err(e),
+    }
+}
+
+/// A BED writer.
+pub struct Writer<W> { inner: W }
+
+impl<W> Writer<W> where W: Write {
+    /// Creates a BED writer.
+    pub fn new(inner: W) -> Self { Self { inner } }
+
+    /// Writes a BED record.
+    pub fn write_record<B>(&mut self, record: &B) -> io::Result<()>
+    where
+        B: std::fmt::Display + BEDLike,
+    {
+        writeln!(&mut self.inner, "{}", record)
     }
 }
 
@@ -199,47 +217,15 @@ chr10	2000	10000	r3	3	+
         */
 
     }
-}
-
-
-
-/*
-
-/// A BED writer.
-pub struct Writer<W> { inner: W }
-
-impl<W> Writer<W> where W: Write {
-    /// Creates a BED writer.
-    pub fn new(inner: W) -> Self { Self { inner } }
-
-    /// Writes a BED record.
-    pub fn write_record<const N: u8>(&mut self, record: &BED<N>) -> io::Result<()>
-    where
-        Record<N>: fmt::Display,
-    {
-        write_record(&mut self.inner, record)
-    }
-}
-
-fn write_record<W, const N: u8>(writer: &mut W, record: &Record<N>) -> io::Result<()>
-where
-    W: Write,
-    Record<N>: fmt::Display,
-{
-    writeln!(writer, "{}", record)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 
     #[test]
     fn test_write_record() -> Result<(), Box<dyn std::error::Error>> {
-        let mut buf = Vec::new();
-        let record: Record<3> = "sq0\t8\t13".parse()?;
-        write_record(&mut buf, &record)?;
-        assert_eq!(buf, b"sq0\t8\t13\n");
+        let mut writer = Writer::new(Vec::new());
+        let record: BED<3> = "sq0\t8\t13".parse().unwrap();
+        writer.write_record(&record)?;
+        assert_eq!(writer.inner, b"sq0\t8\t13\n");
         Ok(())
     }
 }
-*/
+
+
