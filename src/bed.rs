@@ -2,6 +2,7 @@ pub mod io;
 pub mod tree;
 
 pub use self::{score::Score, strand::Strand};
+use itertools::Itertools;
 mod score;
 mod strand;
 
@@ -9,7 +10,9 @@ use std::{
     fmt::{self, Write},
     num,
     ops::Deref,
+    ops::FnMut,
     str::FromStr,
+    cmp::Ordering,
 };
 
 const DELIMITER: char = '\t';
@@ -91,6 +94,12 @@ pub trait BEDLike {
     /// Return the length of the record
     fn len(&self) -> u64 { self.end() - self.start() }
 
+    fn compare(&self, other: &Self) -> Ordering {
+        self.chrom().cmp(other.chrom())
+            .then(self.start().cmp(&other.start()))
+            .then(self.end().cmp(&other.end()))
+    }
+
     /// Convert the record to a `GenomicRange`
     fn to_genomic_range(&self) -> GenomicRange {
         GenomicRange::new(self.chrom(), self.start(), self.end())
@@ -116,6 +125,101 @@ where
         bed_.clone()
     })
 }
+
+pub struct MergeBed<I, B, F> {
+    sorted_bed_iter: I,
+    merger: F,
+    accum: Option<((String, u64, u64), Vec<B>)>,
+}
+
+impl<I, F, B, O> Iterator for MergeBed<I, B, F>
+where
+    I: Iterator<Item = B>,
+    B: BEDLike,
+    F: Fn(Vec<B>) -> O,
+{
+    type Item = O;
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.sorted_bed_iter.next() {
+                None => return if self.accum.is_none() {
+                    None
+                } else {
+                    let (_, accum) = std::mem::replace(&mut self.accum, None).unwrap();
+                    Some((self.merger)(accum))
+                },
+                Some(record) => match self.accum.as_mut() {
+                    None => self.accum = Some((
+                        (record.chrom().to_string(), record.start(), record.end()),
+                        vec![record],
+                    )),
+                    Some(((chr, s, e), accum)) => {
+                        let chr_ = record.chrom();
+                        let s_ = record.start();
+                        let e_ = record.end();
+                        if chr != chr_ || s_ > *e {
+                            let (_, acc) = std::mem::replace(
+                                &mut self.accum,
+                                Some(((chr_.to_string(), s_, e_), vec![record])),
+                            ).unwrap();
+                            return Some((self.merger)(acc))
+                        } else if s_ < *s {
+                            panic!("input is not sorted")
+                        } else if e_ > *e {
+                            *e = e_;
+                            accum.push(record);
+                        } else {
+                            accum.push(record);
+                        }
+                    }
+                },
+            }
+        }
+    }
+}
+
+pub fn merge_sorted_bed_with<I, B, O, F>(sorted_bed_iter: I, merger: F) -> MergeBed<I, B, F>
+where
+    I: Iterator<Item = B>,
+    B: BEDLike,
+    F: Fn(Vec<B>) -> O,
+{
+    MergeBed { sorted_bed_iter, merger, accum: None }
+}
+
+pub fn merge_bed_with<I, B, O, F>(bed_iter: I, merger: F) -> MergeBed<std::vec::IntoIter<B>, B, F>
+where
+    I: Iterator<Item = B>,
+    B: BEDLike,
+    F: Fn(Vec<B>) -> O,
+{
+    merge_sorted_bed_with(bed_iter.sorted_by(BEDLike::compare), merger)
+}
+
+pub fn merge_sorted_bed<I, B>(sorted_bed_iter: I) -> MergeBed<I, B, impl Fn(Vec<B>) -> GenomicRange>
+where
+    I: Iterator<Item = B>,
+    B: BEDLike,
+{
+    let merger = |x: Vec<B>| -> GenomicRange { GenomicRange::new(
+        x[0].chrom(),
+        x.iter().map(|x| x.start()).min().unwrap(),
+        x.iter().map(|x| x.end()).max().unwrap(),
+    ) };
+    MergeBed { sorted_bed_iter, merger, accum: None }
+}
+
+pub fn merge_bed<I, B>(
+    bed_iter: I
+) -> MergeBed<std::vec::IntoIter<B>, B, impl Fn(Vec<B>) -> GenomicRange>
+where
+    I: Iterator<Item = B>,
+    B: BEDLike,
+{
+    merge_sorted_bed(bed_iter.sorted_by(BEDLike::compare))
+}
+
+
 
 impl BEDLike for GenomicRange {
     fn chrom(&self) -> &str { &self.0 }
@@ -332,6 +436,44 @@ impl From<Vec<String>> for OptionalFields {
     }
 }
 
+
+/// A standard BED record.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NarrowPeak {
+    pub chrom: String,
+    pub start: u64,
+    pub end: u64,
+    pub name: Option<String>,
+    pub score: Option<Score>,
+    pub strand: Option<Strand>,
+    pub signal_value: f64,
+    pub p_value: f64, 
+    pub q_value: f64, 
+    pub peak: u64, 
+}
+
+impl BEDLike for NarrowPeak {
+    fn chrom(&self) -> &str { &self.chrom }
+    fn set_chrom(&mut self, chrom: &str) -> &mut Self {
+        self.chrom = chrom.to_string();
+        self
+    }
+    fn start(&self) -> u64 { self.start }
+    fn set_start(&mut self, start: u64) -> &mut Self {
+        self.start = start;
+        self
+    }
+    fn end(&self) -> u64 { self.end }
+    fn set_end(&mut self, end: u64) -> &mut Self {
+        self.end = end;
+        self
+    }
+    fn name(&self) -> Option<&str> { self.name.as_deref() }
+    fn score(&self) -> Option<Score> { self.score }
+    fn strand(&self) -> Option<Strand> { self.strand }
+}
+
+
 #[cfg(test)]
 mod bed_tests {
     use super::*;
@@ -345,6 +487,25 @@ mod bed_tests {
             GenomicRange::new("chr1", 1000, 1230),
         ];
         assert_eq!(beds, expected);
+    }
+
+    #[test]
+    fn test_merge() {
+        let input = [
+            (0, 100),
+            (10, 20),
+            (50, 150),
+            (120, 160),
+            (155, 200),
+            (155, 220),
+            (500, 1000)
+        ].into_iter().map(|(a,b)| GenomicRange::new("chr1", a, b));
+        let expect: Vec<GenomicRange> = [
+            (0, 220),
+            (500, 1000)
+        ].into_iter().map(|(a,b)| GenomicRange::new("chr1", a, b)).collect();
+        assert_eq!(merge_sorted_bed(input.clone()).collect::<Vec<_>>(), expect);
+        assert_eq!(merge_bed(input.rev()).collect::<Vec<_>>(), expect);
     }
 
     #[test]
