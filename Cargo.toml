@@ -12,3 +12,11 @@ noodles-bgzf = { version = "0.8.0", features = ["libdeflate"] }
 bio = "0.39.0"
 itertools = "0.8"
 indexmap = "1.7"
+lexical = "6.1"
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "main"
+harness = false

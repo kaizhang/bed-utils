@@ -22,7 +22,7 @@ impl Deref for Score {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ParseError {
     /// The input failed to be parsed as an integer.
-    Parse(num::ParseIntError),
+    Parse(lexical::Error),
     /// The input is invalid.
     Invalid(TryFromIntError),
 }
@@ -42,7 +42,7 @@ impl FromStr for Score {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let n: u16 = s.parse().map_err(ParseError::Parse)?;
+        let n: u16 = lexical::parse(s).map_err(ParseError::Parse)?;
         Self::try_from(n).map_err(ParseError::Invalid)
     }
 }
@@ -63,7 +63,7 @@ impl TryFrom<u16> for Score {
     type Error = TryFromIntError;
 
     fn try_from(n: u16) -> Result<Self, Self::Error> {
-        const MIN: u16 = 1;
+        const MIN: u16 = 0;
         const MAX: u16 = 1000;
 
         if (MIN..=MAX).contains(&n) {
@@ -95,7 +95,6 @@ mod tests {
         assert_eq!(Score::try_from(1), Ok(Score(1)));
         assert_eq!(Score::try_from(1000), Ok(Score(1000)));
 
-        assert_eq!(Score::try_from(0), Err(TryFromIntError(0)));
         assert_eq!(Score::try_from(1001), Err(TryFromIntError(1001)));
     }
 

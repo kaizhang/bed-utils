@@ -338,7 +338,7 @@ where
     fields
         .next()
         .ok_or(ParseError::MissingStartPosition)
-        .and_then(|s| s.parse().map_err(ParseError::InvalidStartPosition))
+        .and_then(|s| lexical::parse(s).map_err(ParseError::InvalidStartPosition))
 }
 
 fn parse_end<'a, I>(fields: &mut I) -> Result<u64, ParseError>
@@ -348,7 +348,7 @@ where
     fields
         .next()
         .ok_or(ParseError::MissingEndPosition)
-        .and_then(|s| s.parse().map_err(ParseError::InvalidEndPosition))
+        .and_then(|s| lexical::parse(s).map_err(ParseError::InvalidEndPosition))
 }
 
 fn parse_name<'a, I>(fields: &mut I) -> Result<Option<String>, ParseError>
@@ -398,11 +398,11 @@ pub enum ParseError {
     /// The start position is missing.
     MissingStartPosition,
     /// The start position is invalid.
-    InvalidStartPosition(num::ParseIntError),
+    InvalidStartPosition(lexical::Error),
     /// The end position is missing.
     MissingEndPosition,
     /// The end position is invalid.
-    InvalidEndPosition(num::ParseIntError),
+    InvalidEndPosition(lexical::Error),
     /// The name is missing.
     MissingName,
     /// The score is missing.
@@ -485,6 +485,61 @@ impl BEDLike for NarrowPeak {
     fn strand(&self) -> Option<Strand> { self.strand }
 }
 
+impl fmt::Display for NarrowPeak {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}{}{}{}{}{}{}",
+            self.chrom(),
+            DELIMITER, self.start(),
+            DELIMITER, self.end(),
+            DELIMITER, self.name().unwrap_or(MISSING_ITEM),
+        )?;
+
+        f.write_char(DELIMITER)?;
+        if let Some(x) = self.score() {
+            write!(f, "{}", x)?;
+        } else {
+            f.write_str(MISSING_ITEM)?;
+        }
+        f.write_char(DELIMITER)?;
+        if let Some(x) = self.strand() {
+            write!(f, "{}", x)?;
+        } else {
+            f.write_str(MISSING_ITEM)?;
+        }
+        write!(
+            f,
+            "{}{}{}{}{}{}{}{}",
+            DELIMITER, self.signal_value,
+            DELIMITER, self.p_value,
+            DELIMITER, self.q_value,
+            DELIMITER, self.peak,
+        )?;
+
+        Ok(())
+    }
+}
+
+impl FromStr for NarrowPeak {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut fields = s.split(DELIMITER);
+        Ok(Self {
+            chrom: parse_chrom(&mut fields)?.to_string(),
+            start: parse_start(&mut fields)?,
+            end: parse_end(&mut fields)?,
+            name: parse_name(&mut fields)?,
+            score: parse_score(&mut fields)?,
+            strand: parse_strand(&mut fields)?,
+            signal_value: fields.next().unwrap().parse().unwrap(),
+            p_value: fields.next().unwrap().parse().unwrap(),
+            q_value: fields.next().unwrap().parse().unwrap(),
+            peak: fields.next().unwrap().parse().unwrap(),
+        })
+    }
+}
 
 #[cfg(test)]
 mod bed_tests {

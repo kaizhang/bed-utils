@@ -176,6 +176,7 @@ impl<W> Writer<W> where W: Write {
 mod tests {
     use super::*;
     use super::super::BED;
+    use crate::bed::NarrowPeak;
 
     #[test]
     fn test_read_line() {
@@ -224,6 +225,19 @@ chr10	2000	10000	r3	3	+
         let record: BED<3> = "sq0\t8\t13".parse().unwrap();
         writer.write_record(&record)?;
         assert_eq!(writer.inner, b"sq0\t8\t13\n");
+        Ok(())
+    }
+
+    #[test]
+    fn test_io_narrowpeak() -> Result<(), Box<dyn std::error::Error>> {
+        let input = "chr1\t9356548\t9356648\t.\t0\t.\t182\t5.0945\t-1\t50";
+        let mut writer = Writer::new(Vec::new());
+        let record: NarrowPeak = input.parse().unwrap();
+        writer.write_record(&record)?;
+        assert_eq!(
+            std::str::from_utf8(writer.inner.as_slice()).unwrap(),
+            input.to_string() + "\n",
+        );
         Ok(())
     }
 }
