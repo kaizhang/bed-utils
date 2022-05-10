@@ -100,6 +100,18 @@ pub trait BEDLike {
             .then(self.end().cmp(&other.end()))
     }
 
+    fn n_overlap<B: BEDLike>(&self, other: &B) -> usize {
+        if self.chrom() != other.chrom() {
+            0
+        } else {
+            [ self.end().saturating_sub(other.start()),
+              other.end().saturating_sub(self.start()),
+              self.end().saturating_sub(self.start()),
+              other.end().saturating_sub(other.start()),
+            ].into_iter().min().unwrap().try_into().unwrap()
+        }
+    }
+
     /// Convert the record to a `GenomicRange`
     fn to_genomic_range(&self) -> GenomicRange {
         GenomicRange::new(self.chrom(), self.start(), self.end())
