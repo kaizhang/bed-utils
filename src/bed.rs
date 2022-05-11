@@ -8,9 +8,7 @@ mod strand;
 
 use std::{
     fmt::{self, Write},
-    num,
     ops::Deref,
-    ops::FnMut,
     str::FromStr,
     cmp::Ordering,
 };

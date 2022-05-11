@@ -1,6 +1,6 @@
 //! BED record score.
 
-use std::{error, fmt, num, str::FromStr};
+use std::{error, fmt, str::FromStr};
 use std::ops::Deref;
 
 /// A BED record score.
@@ -63,10 +63,7 @@ impl TryFrom<u16> for Score {
     type Error = TryFromIntError;
 
     fn try_from(n: u16) -> Result<Self, Self::Error> {
-        const MIN: u16 = 0;
-        const MAX: u16 = 1000;
-
-        if (MIN..=MAX).contains(&n) {
+        if n <= 1000 {
             Ok(Self(n))
         } else {
             Err(TryFromIntError(n))
