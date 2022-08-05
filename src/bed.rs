@@ -98,16 +98,24 @@ pub trait BEDLike {
             .then(self.end().cmp(&other.end()))
     }
 
-    fn n_overlap<B: BEDLike>(&self, other: &B) -> usize {
+    /// Return the overlap
+    fn overlap<B: BEDLike>(&self, other: &B) -> Option<GenomicRange> {
         if self.chrom() != other.chrom() {
-            0
+            None
         } else {
-            [ self.end().saturating_sub(other.start()),
-              other.end().saturating_sub(self.start()),
-              self.end().saturating_sub(self.start()),
-              other.end().saturating_sub(other.start()),
-            ].into_iter().min().unwrap().try_into().unwrap()
+            let start = self.start().max(other.start());
+            let end = self.end().min(other.end());
+            if start >= end {
+                None
+            } else {
+                Some(GenomicRange::new(self.chrom(), start, end))
+            }
         }
+    }
+
+    /// Return the size of overlap between two records
+    fn n_overlap<B: BEDLike>(&self, other: &B) -> u64 {
+        self.overlap(other).map_or(0, |x| x.len())
     }
 
     /// Convert the record to a `GenomicRange`
@@ -552,6 +560,34 @@ mod bed_tests {
             GenomicRange::new("chr1", 1000, 1230),
         ];
         assert_eq!(beds, expected);
+    }
+
+    #[test]
+    fn test_overlap() {
+        assert_eq!(
+            GenomicRange::new("chr1", 100, 200).overlap(&GenomicRange::new("chr1", 150, 300)),
+            Some(GenomicRange::new("chr1", 150, 200)),
+        );
+
+        assert_eq!(
+            GenomicRange::new("chr1", 100, 200).overlap(&GenomicRange::new("chr1", 110, 190)),
+            Some(GenomicRange::new("chr1", 110, 190)),
+        );
+
+        assert_eq!(
+            GenomicRange::new("chr1", 100, 200).overlap(&GenomicRange::new("chr1", 90, 99)),
+            None,
+        );
+
+        assert_eq!(
+            GenomicRange::new("chr1", 111, 180).overlap(&GenomicRange::new("chr1", 110, 190)),
+            Some(GenomicRange::new("chr1", 111, 180)),
+        );
+
+        assert_eq!(
+            GenomicRange::new("chr1", 111, 200).overlap(&GenomicRange::new("chr1", 110, 190)),
+            Some(GenomicRange::new("chr1", 111, 190)),
+        );
     }
 
     #[test]
