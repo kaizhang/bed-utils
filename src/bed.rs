@@ -547,6 +547,74 @@ impl FromStr for NarrowPeak {
     }
 }
 
+/// The bedGraph format allows display of continuous-valued data in track format.
+/// This display type is useful for probability scores and transcriptome data. 
+#[derive(Clone, Debug, PartialEq)]
+pub struct BedGraph<V> {
+    pub chrom: String,
+    pub start: u64,
+    pub end: u64,
+    pub value: V,
+}
+
+impl<V> BEDLike for BedGraph<V> {
+    fn chrom(&self) -> &str { &self.chrom }
+    fn set_chrom(&mut self, chrom: &str) -> &mut Self {
+        self.chrom = chrom.to_string();
+        self
+    }
+    fn start(&self) -> u64 { self.start }
+    fn set_start(&mut self, start: u64) -> &mut Self {
+        self.start = start;
+        self
+    }
+    fn end(&self) -> u64 { self.end }
+    fn set_end(&mut self, end: u64) -> &mut Self {
+        self.end = end;
+        self
+    }
+    fn name(&self) -> Option<&str> { None }
+    fn score(&self) -> Option<Score> { None }
+    fn strand(&self) -> Option<Strand> { None }
+}
+
+impl<V> fmt::Display for BedGraph<V>
+where
+    V: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
+    {
+        write!(
+            f,
+            "{}{}{}{}{}{}{}",
+            self.chrom(),
+            DELIMITER, self.start(),
+            DELIMITER, self.end(),
+            DELIMITER, self.value,
+        )
+    }
+}
+
+impl<V> FromStr for BedGraph<V>
+where
+    V: FromStr,
+    <V as FromStr>::Err: std::fmt::Debug,
+{
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err>
+    {
+        let mut fields = s.split(DELIMITER);
+        Ok(Self {
+            chrom: parse_chrom(&mut fields)?.to_string(),
+            start: parse_start(&mut fields)?,
+            end: parse_end(&mut fields)?,
+            value: fields.next().unwrap().parse().unwrap(),
+        })
+    }
+}
+
+
 #[cfg(test)]
 mod bed_tests {
     use super::*;
