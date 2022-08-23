@@ -27,11 +27,15 @@ impl GenomicRange {
     { Self(chrom.into(), start, end) }
 }
 
+/// Convert string to GenomicRange. '\t', ':', and '-' are all considered as
+/// valid delimiters. So any of the following formats is valid:
+/// * chr1\t100\t200
+/// * chr1:100-200
 impl FromStr for GenomicRange {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut fields = s.split(DELIMITER);
+        let mut fields = s.split(&['\t', ':', '-']);
         let chrom = parse_chrom(&mut fields)?;
         let start = parse_start(&mut fields)?;
         let end = parse_end(&mut fields)?;
@@ -124,7 +128,7 @@ pub trait BEDLike {
     }
 
     /// Convert the record to a string representation: chr:start-end
-    fn to_string(&self) -> String {
+    fn pretty_show(&self) -> String {
         format!("{}:{}-{}", self.chrom(), self.start(), self.end())
     }
 }
@@ -557,6 +561,17 @@ pub struct BedGraph<V> {
     pub value: V,
 }
 
+impl<V> BedGraph<V> {
+    pub fn new<C>(chrom: C, start: u64, end: u64, value: V) -> Self
+    where
+        C: Into<String>,
+    { Self { chrom: chrom.into(), start, end, value } }
+
+    pub fn from_bed<B: BEDLike>(bed: &B, value: V) -> Self {
+        Self::new(bed.chrom(), bed.start(), bed.end(), value)
+    }
+}
+
 impl<V> BEDLike for BedGraph<V> {
     fn chrom(&self) -> &str { &self.chrom }
     fn set_chrom(&mut self, chrom: &str) -> &mut Self {
@@ -687,5 +702,12 @@ mod bed_tests {
 
         let fields = OptionalFields::from(vec![String::from("n"), String::from("d")]);
         assert_eq!(fields.to_string(), "n\td");
+
+        let genomic_range = GenomicRange::new("chr1", 100, 200);
+        assert_eq!(genomic_range, GenomicRange::from_str("chr1\t100\t200").unwrap());
+        assert_eq!(genomic_range, GenomicRange::from_str("chr1-100-200").unwrap());
+        assert_eq!(genomic_range, GenomicRange::from_str("chr1:100-200").unwrap());
+        assert_eq!(genomic_range, GenomicRange::from_str("chr1:100:200").unwrap());
+        assert_eq!(genomic_range, GenomicRange::from_str(&genomic_range.pretty_show()).unwrap());
     }
 }
