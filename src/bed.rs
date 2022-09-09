@@ -1,23 +1,23 @@
 pub mod io;
 pub mod tree;
 
-pub use self::{score::Score, strand::Strand};
-use itertools::Itertools;
+mod bed_trait;
+pub use bed_trait::*;
 mod score;
+pub use score::Score;
 mod strand;
+pub use strand::Strand;
 
-use std::{
-    fmt::{self, Write},
-    ops::Deref,
-    str::FromStr,
-    cmp::Ordering,
-};
+use std::{fmt::{self, Write}, ops::Deref, str::FromStr};
+use serde::{Serialize, Deserialize, de::DeserializeOwned};
+use extsort::sorter::Sortable;
+use bincode;
 
 const DELIMITER: char = '\t';
 const MISSING_ITEM : &str = ".";
 
 /// A minimal BED record with only 3 fields.
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct GenomicRange(String, u64, u64);
 
 impl GenomicRange {
@@ -25,6 +25,11 @@ impl GenomicRange {
     where
         C: Into<String>,
     { Self(chrom.into(), start, end) }
+
+    /// Convert the record to a string representation: chr:start-end
+    pub fn pretty_show(&self) -> String {
+        format!("{}:{}-{}", self.0, self.1, self.2)
+    }
 }
 
 /// Convert string to GenomicRange. '\t', ':', and '-' are all considered as
@@ -42,206 +47,6 @@ impl FromStr for GenomicRange {
         Ok(GenomicRange::new(chrom, start, end))
     }
 }
-
-/// A standard BED record.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BED<const N: u8> {
-    chrom: String,
-    start: u64,
-    end: u64,
-    pub name: Option<String>,
-    pub score: Option<Score>,
-    pub strand: Option<Strand>,
-    pub optional_fields: OptionalFields,
-}
-
-impl<const N: u8> BED<N> {
-    pub fn new<C>(chrom: C, start: u64, end: u64, name: Option<String>,
-        score: Option<Score>, strand: Option<Strand>, optional_fields: OptionalFields) -> Self
-    where
-        C: Into<String>,
-    { Self { chrom: chrom.into(), start, end, name, score, strand, optional_fields } }
-}
-
-/// Common BED fields
-pub trait BEDLike {
-
-    /// Return the chromosome name of the record
-    fn chrom(&self) -> &str;
-
-    /// Change the chromosome name of the record
-    fn set_chrom(&mut self, chrom: &str) -> &mut Self;
-
-    /// Return the 0-based start position of the record
-    fn start(&self) -> u64;
-
-    /// Change the 0-based start position of the record
-    fn set_start(&mut self, start: u64) -> &mut Self;
-
-    /// Return the end position (non-inclusive) of the record
-    fn end(&self) -> u64;
-
-    /// Change the end position (non-inclusive) of the record
-    fn set_end(&mut self, end: u64) -> &mut Self;
-
-    /// Return the name of the record
-    fn name(&self) -> Option<&str> { None }
-
-    /// Return the score of the record
-    fn score(&self) -> Option<Score> { None }
-
-    /// Return the strand of the record
-    fn strand(&self) -> Option<Strand> { None }
-
-    /// Return the length of the record
-    fn len(&self) -> u64 { self.end() - self.start() }
-
-    fn compare(&self, other: &Self) -> Ordering {
-        self.chrom().cmp(other.chrom())
-            .then(self.start().cmp(&other.start()))
-            .then(self.end().cmp(&other.end()))
-    }
-
-    /// Return the overlap
-    fn overlap<B: BEDLike>(&self, other: &B) -> Option<GenomicRange> {
-        if self.chrom() != other.chrom() {
-            None
-        } else {
-            let start = self.start().max(other.start());
-            let end = self.end().min(other.end());
-            if start >= end {
-                None
-            } else {
-                Some(GenomicRange::new(self.chrom(), start, end))
-            }
-        }
-    }
-
-    /// Return the size of overlap between two records
-    fn n_overlap<B: BEDLike>(&self, other: &B) -> u64 {
-        self.overlap(other).map_or(0, |x| x.len())
-    }
-
-    /// Convert the record to a `GenomicRange`
-    fn to_genomic_range(&self) -> GenomicRange {
-        GenomicRange::new(self.chrom(), self.start(), self.end())
-    }
-
-    /// Convert the record to a string representation: chr:start-end
-    fn pretty_show(&self) -> String {
-        format!("{}:{}-{}", self.chrom(), self.start(), self.end())
-    }
-}
-
-/// Split into consecutive records with the specified length. The length of
-/// the last record may be shorter.
-pub fn split_by_len<B>(bed: &B, bin_size: u64) -> impl Iterator<Item = B>
-where
-    B: BEDLike + Clone,
-{
-    let start = bed.start();
-    let end = bed.end();
-    let mut bed_ = (*bed).clone();
-    (start .. end).step_by(bin_size as usize).map(move |x| {
-        bed_.set_start(x).set_end((x + bin_size).min(end));
-        bed_.clone()
-    })
-}
-
-pub struct MergeBed<I, B, F> {
-    sorted_bed_iter: I,
-    merger: F,
-    accum: Option<((String, u64, u64), Vec<B>)>,
-}
-
-impl<I, F, B, O> Iterator for MergeBed<I, B, F>
-where
-    I: Iterator<Item = B>,
-    B: BEDLike,
-    F: Fn(Vec<B>) -> O,
-{
-    type Item = O;
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.sorted_bed_iter.next() {
-                None => return if self.accum.is_none() {
-                    None
-                } else {
-                    let (_, accum) = std::mem::replace(&mut self.accum, None).unwrap();
-                    Some((self.merger)(accum))
-                },
-                Some(record) => match self.accum.as_mut() {
-                    None => self.accum = Some((
-                        (record.chrom().to_string(), record.start(), record.end()),
-                        vec![record],
-                    )),
-                    Some(((chr, s, e), accum)) => {
-                        let chr_ = record.chrom();
-                        let s_ = record.start();
-                        let e_ = record.end();
-                        if chr != chr_ || s_ > *e {
-                            let (_, acc) = std::mem::replace(
-                                &mut self.accum,
-                                Some(((chr_.to_string(), s_, e_), vec![record])),
-                            ).unwrap();
-                            return Some((self.merger)(acc))
-                        } else if s_ < *s {
-                            panic!("input is not sorted")
-                        } else if e_ > *e {
-                            *e = e_;
-                            accum.push(record);
-                        } else {
-                            accum.push(record);
-                        }
-                    }
-                },
-            }
-        }
-    }
-}
-
-pub fn merge_sorted_bed_with<I, B, O, F>(sorted_bed_iter: I, merger: F) -> MergeBed<I, B, F>
-where
-    I: Iterator<Item = B>,
-    B: BEDLike,
-    F: Fn(Vec<B>) -> O,
-{
-    MergeBed { sorted_bed_iter, merger, accum: None }
-}
-
-pub fn merge_bed_with<I, B, O, F>(bed_iter: I, merger: F) -> MergeBed<std::vec::IntoIter<B>, B, F>
-where
-    I: Iterator<Item = B>,
-    B: BEDLike,
-    F: Fn(Vec<B>) -> O,
-{
-    merge_sorted_bed_with(bed_iter.sorted_by(BEDLike::compare), merger)
-}
-
-pub fn merge_sorted_bed<I, B>(sorted_bed_iter: I) -> MergeBed<I, B, impl Fn(Vec<B>) -> GenomicRange>
-where
-    I: Iterator<Item = B>,
-    B: BEDLike,
-{
-    let merger = |x: Vec<B>| -> GenomicRange { GenomicRange::new(
-        x[0].chrom(),
-        x.iter().map(|x| x.start()).min().unwrap(),
-        x.iter().map(|x| x.end()).max().unwrap(),
-    ) };
-    MergeBed { sorted_bed_iter, merger, accum: None }
-}
-
-pub fn merge_bed<I, B>(
-    bed_iter: I
-) -> MergeBed<std::vec::IntoIter<B>, B, impl Fn(Vec<B>) -> GenomicRange>
-where
-    I: Iterator<Item = B>,
-    B: BEDLike,
-{
-    merge_sorted_bed(bed_iter.sorted_by(BEDLike::compare))
-}
-
-
 
 impl BEDLike for GenomicRange {
     fn chrom(&self) -> &str { &self.0 }
@@ -262,6 +67,46 @@ impl BEDLike for GenomicRange {
     fn name(&self) -> Option<&str> { None }
     fn score(&self) -> Option<Score> { None }
     fn strand(&self) -> Option<Strand> { None }
+}
+
+impl Sortable for GenomicRange {
+    fn encode<W: std::io::Write>(&self, writer: &mut W) {
+        bincode::serialize_into(writer, self).unwrap();
+    }
+
+    fn decode<R: std::io::Read>(reader: &mut R) -> Option<Self> {
+        bincode::deserialize_from(reader).ok()
+    }
+}
+
+impl fmt::Display for GenomicRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}{}{}{}", self.chrom(), DELIMITER, self.start(),
+            DELIMITER, self.end()
+        )?;
+        Ok(())
+    }
+}
+
+
+/// A standard BED record.
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct BED<const N: u8> {
+    chrom: String,
+    start: u64,
+    end: u64,
+    pub name: Option<String>,
+    pub score: Option<Score>,
+    pub strand: Option<Strand>,
+    pub optional_fields: OptionalFields,
+}
+
+impl<const N: u8> BED<N> {
+    pub fn new<C>(chrom: C, start: u64, end: u64, name: Option<String>,
+        score: Option<Score>, strand: Option<Strand>, optional_fields: OptionalFields) -> Self
+    where
+        C: Into<String>,
+    { Self { chrom: chrom.into(), start, end, name, score, strand, optional_fields } }
 }
 
 impl<const N: u8> BEDLike for BED<N> {
@@ -332,102 +177,18 @@ impl<const N: u8> FromStr for BED<N> {
     }
 }
 
-fn parse_chrom<'a, I>(fields: &mut I) -> Result<&'a str, ParseError>
-where
-    I: Iterator<Item = &'a str>,
-{
-    fields
-        .next()
-        .ok_or(ParseError::MissingReferenceSequenceName)
-}
+impl<const N: u8> Sortable for BED<N> {
+    fn encode<W: std::io::Write>(&self, writer: &mut W) {
+        bincode::serialize_into(writer, self).unwrap();
+    }
 
-fn parse_start<'a, I>(fields: &mut I) -> Result<u64, ParseError>
-where
-    I: Iterator<Item = &'a str>,
-{
-    fields
-        .next()
-        .ok_or(ParseError::MissingStartPosition)
-        .and_then(|s| lexical::parse(s).map_err(ParseError::InvalidStartPosition))
+    fn decode<R: std::io::Read>(reader: &mut R) -> Option<Self> {
+        bincode::deserialize_from(reader).ok()
+    }
 }
-
-fn parse_end<'a, I>(fields: &mut I) -> Result<u64, ParseError>
-where
-    I: Iterator<Item = &'a str>,
-{
-    fields
-        .next()
-        .ok_or(ParseError::MissingEndPosition)
-        .and_then(|s| lexical::parse(s).map_err(ParseError::InvalidEndPosition))
-}
-
-fn parse_name<'a, I>(fields: &mut I) -> Result<Option<String>, ParseError>
-where
-    I: Iterator<Item = &'a str>,
-{
-    fields
-        .next()
-        .ok_or(ParseError::MissingName)
-        .map(|s| match s {
-            MISSING_ITEM => None,
-            _ => Some(s.into()),
-        })
-}
-
-fn parse_score<'a, I>(fields: &mut I) -> Result<Option<Score>, ParseError>
-where
-    I: Iterator<Item = &'a str>,
-{
-    fields
-        .next()
-        .ok_or(ParseError::MissingScore)
-        .and_then(|s| match s {
-            MISSING_ITEM => Ok(None),
-            _ => s.parse().map(Some).map_err(ParseError::InvalidScore),
-        })
-}
-
-fn parse_strand<'a, I>(fields: &mut I) -> Result<Option<Strand>, ParseError>
-where
-    I: Iterator<Item = &'a str>,
-{
-    fields
-        .next()
-        .ok_or(ParseError::MissingStrand)
-        .and_then(|s| match s {
-            MISSING_ITEM => Ok(None),
-            _ => s.parse().map(Some).map_err(ParseError::InvalidStrand),
-        })
-}
-
-/// An error returned when a raw BED record fails to parse.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ParseError {
-    /// The reference sequence name is missing.
-    MissingReferenceSequenceName,
-    /// The start position is missing.
-    MissingStartPosition,
-    /// The start position is invalid.
-    InvalidStartPosition(lexical::Error),
-    /// The end position is missing.
-    MissingEndPosition,
-    /// The end position is invalid.
-    InvalidEndPosition(lexical::Error),
-    /// The name is missing.
-    MissingName,
-    /// The score is missing.
-    MissingScore,
-    /// The score is invalid.
-    InvalidScore(score::ParseError),
-    /// The strand is missing.
-    MissingStrand,
-    /// The strand is invalid.
-    InvalidStrand(strand::ParseError),
-}
-
 
 /// Generic BED record optional fields.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
 pub struct OptionalFields(Vec<String>);
 
 impl Deref for OptionalFields {
@@ -553,7 +314,7 @@ impl FromStr for NarrowPeak {
 
 /// The bedGraph format allows display of continuous-valued data in track format.
 /// This display type is useful for probability scores and transcriptome data. 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BedGraph<V> {
     pub chrom: String,
     pub start: u64,
@@ -629,68 +390,119 @@ where
     }
 }
 
+impl<V> Sortable for BedGraph<V>
+where
+    V: std::marker::Send + Serialize + DeserializeOwned,
+{
+    fn encode<W: std::io::Write>(&self, writer: &mut W) {
+        bincode::serialize_into(writer, self).unwrap();
+    }
+
+    fn decode<R: std::io::Read>(reader: &mut R) -> Option<Self> {
+        bincode::deserialize_from(reader).ok()
+    }
+}
+
+
+
+
+fn parse_chrom<'a, I>(fields: &mut I) -> Result<&'a str, ParseError>
+where
+    I: Iterator<Item = &'a str>,
+{
+    fields
+        .next()
+        .ok_or(ParseError::MissingReferenceSequenceName)
+}
+
+fn parse_start<'a, I>(fields: &mut I) -> Result<u64, ParseError>
+where
+    I: Iterator<Item = &'a str>,
+{
+    fields
+        .next()
+        .ok_or(ParseError::MissingStartPosition)
+        .and_then(|s| lexical::parse(s).map_err(ParseError::InvalidStartPosition))
+}
+
+fn parse_end<'a, I>(fields: &mut I) -> Result<u64, ParseError>
+where
+    I: Iterator<Item = &'a str>,
+{
+    fields
+        .next()
+        .ok_or(ParseError::MissingEndPosition)
+        .and_then(|s| lexical::parse(s).map_err(ParseError::InvalidEndPosition))
+}
+
+fn parse_name<'a, I>(fields: &mut I) -> Result<Option<String>, ParseError>
+where
+    I: Iterator<Item = &'a str>,
+{
+    fields
+        .next()
+        .ok_or(ParseError::MissingName)
+        .map(|s| match s {
+            MISSING_ITEM => None,
+            _ => Some(s.into()),
+        })
+}
+
+fn parse_score<'a, I>(fields: &mut I) -> Result<Option<Score>, ParseError>
+where
+    I: Iterator<Item = &'a str>,
+{
+    fields
+        .next()
+        .ok_or(ParseError::MissingScore)
+        .and_then(|s| match s {
+            MISSING_ITEM => Ok(None),
+            _ => s.parse().map(Some).map_err(ParseError::InvalidScore),
+        })
+}
+
+fn parse_strand<'a, I>(fields: &mut I) -> Result<Option<Strand>, ParseError>
+where
+    I: Iterator<Item = &'a str>,
+{
+    fields
+        .next()
+        .ok_or(ParseError::MissingStrand)
+        .and_then(|s| match s {
+            MISSING_ITEM => Ok(None),
+            _ => s.parse().map(Some).map_err(ParseError::InvalidStrand),
+        })
+}
+
+/// An error returned when a raw BED record fails to parse.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ParseError {
+    /// The reference sequence name is missing.
+    MissingReferenceSequenceName,
+    /// The start position is missing.
+    MissingStartPosition,
+    /// The start position is invalid.
+    InvalidStartPosition(lexical::Error),
+    /// The end position is missing.
+    MissingEndPosition,
+    /// The end position is invalid.
+    InvalidEndPosition(lexical::Error),
+    /// The name is missing.
+    MissingName,
+    /// The score is missing.
+    MissingScore,
+    /// The score is invalid.
+    InvalidScore(score::ParseError),
+    /// The strand is missing.
+    MissingStrand,
+    /// The strand is invalid.
+    InvalidStrand(strand::ParseError),
+}
+
 
 #[cfg(test)]
 mod bed_tests {
     use super::*;
-
-    #[test]
-    fn test_split() {
-        let beds: Vec<GenomicRange> = split_by_len(&GenomicRange::new("chr1", 0, 1230), 500).collect();
-        let expected = vec![
-            GenomicRange::new("chr1", 0, 500),
-            GenomicRange::new("chr1", 500, 1000),
-            GenomicRange::new("chr1", 1000, 1230),
-        ];
-        assert_eq!(beds, expected);
-    }
-
-    #[test]
-    fn test_overlap() {
-        assert_eq!(
-            GenomicRange::new("chr1", 100, 200).overlap(&GenomicRange::new("chr1", 150, 300)),
-            Some(GenomicRange::new("chr1", 150, 200)),
-        );
-
-        assert_eq!(
-            GenomicRange::new("chr1", 100, 200).overlap(&GenomicRange::new("chr1", 110, 190)),
-            Some(GenomicRange::new("chr1", 110, 190)),
-        );
-
-        assert_eq!(
-            GenomicRange::new("chr1", 100, 200).overlap(&GenomicRange::new("chr1", 90, 99)),
-            None,
-        );
-
-        assert_eq!(
-            GenomicRange::new("chr1", 111, 180).overlap(&GenomicRange::new("chr1", 110, 190)),
-            Some(GenomicRange::new("chr1", 111, 180)),
-        );
-
-        assert_eq!(
-            GenomicRange::new("chr1", 111, 200).overlap(&GenomicRange::new("chr1", 110, 190)),
-            Some(GenomicRange::new("chr1", 111, 190)),
-        );
-    }
-
-    #[test]
-    fn test_merge() {
-        let input = [
-            (0, 100),
-            (10, 20),
-            (50, 150),
-            (120, 160),
-            (155, 200),
-            (155, 220),
-            (500, 1000)
-        ].into_iter().map(|(a,b)| GenomicRange::new("chr1", a, b));
-        let expect: Vec<GenomicRange> = [
-            (0, 220),
-            (500, 1000)
-        ].into_iter().map(|(a,b)| GenomicRange::new("chr1", a, b)).collect();
-        assert_eq!(merge_sorted_bed(input.clone()).collect::<Vec<_>>(), expect);
-        assert_eq!(merge_bed(input.rev()).collect::<Vec<_>>(), expect);
-    }
 
     #[test]
     fn test_fmt() {

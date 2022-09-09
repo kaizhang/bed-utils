@@ -2,9 +2,10 @@
 
 use std::{error, fmt, str::FromStr};
 use std::ops::Deref;
+use serde::{Serialize, Deserialize};
 
 /// A BED record score.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Score(u16);
 
 impl fmt::Display for Score {

@@ -5,6 +5,7 @@
 use std::{env, fmt, fs::File, io};
 
 use noodles::bam;
+use noodles::sam::alignment::Record;
 
 #[derive(Debug, Default)]
 struct Counts {
@@ -26,7 +27,7 @@ struct Counts {
     mate_reference_sequence_id_mismatch_hq: u64,
 }
 
-fn count(counts: &mut Counts, record: &bam::Record) {
+fn count(counts: &mut Counts, record: &Record) {
     let flags = record.flags();
 
     counts.read += 1;
