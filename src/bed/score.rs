@@ -64,11 +64,7 @@ impl TryFrom<u16> for Score {
     type Error = TryFromIntError;
 
     fn try_from(n: u16) -> Result<Self, Self::Error> {
-        if n <= 1000 {
-            Ok(Self(n))
-        } else {
-            Err(TryFromIntError(n))
-        }
+        Ok(Self(n))
     }
 }
 
@@ -92,8 +88,6 @@ mod tests {
     fn test_try_from_u16_for_score() {
         assert_eq!(Score::try_from(1), Ok(Score(1)));
         assert_eq!(Score::try_from(1000), Ok(Score(1000)));
-
-        assert_eq!(Score::try_from(1001), Err(TryFromIntError(1001)));
     }
 
     #[test]

@@ -246,11 +246,14 @@ mod bed_tests {
             (120, 160),
             (155, 200),
             (155, 220),
-            (500, 1000)
+            (500, 1000),
+            (2000, 2100),
+            (2100, 2200),
         ].into_iter().map(|(a,b)| GenomicRange::new("chr1", a, b));
         let expect: Vec<GenomicRange> = [
             (0, 220),
-            (500, 1000)
+            (500, 1000),
+            (2000, 2200),
         ].into_iter().map(|(a,b)| GenomicRange::new("chr1", a, b)).collect();
         assert_eq!(merge_sorted_bed(input.clone()).collect::<Vec<_>>(), expect);
         assert_eq!(merge_bed(input.rev()).collect::<Vec<_>>(), expect);
