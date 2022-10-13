@@ -221,7 +221,7 @@ impl From<Vec<String>> for OptionalFields {
 
 
 /// A standard BED record.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct NarrowPeak {
     pub chrom: String,
     pub start: u64,
@@ -233,6 +233,17 @@ pub struct NarrowPeak {
     pub p_value: f64, 
     pub q_value: f64, 
     pub peak: u64, 
+}
+
+impl Sortable for NarrowPeak
+{
+    fn encode<W: std::io::Write>(&self, writer: &mut W) {
+        bincode::serialize_into(writer, self).unwrap();
+    }
+
+    fn decode<R: std::io::Read>(reader: &mut R) -> Option<Self> {
+        bincode::deserialize_from(reader).ok()
+    }
 }
 
 impl BEDLike for NarrowPeak {
@@ -402,9 +413,6 @@ where
         bincode::deserialize_from(reader).ok()
     }
 }
-
-
-
 
 fn parse_chrom<'a, I>(fields: &mut I) -> Result<&'a str, ParseError>
 where
