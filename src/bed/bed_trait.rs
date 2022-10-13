@@ -2,6 +2,8 @@ use crate::bed::{GenomicRange, Score, Strand};
 
 use itertools::Itertools;
 use std::{cmp::Ordering, io::Error};
+use extsort::{ExternalSorter, sorter::Sortable};
+use std::path::PathBuf;
 
 /// Common BED fields
 pub trait BEDLike {
@@ -83,6 +85,18 @@ where
     })
 }
 
+pub fn sort_bed<I, B>(bed_iter: I) -> impl Iterator<Item = B>
+where
+    I: Iterator<Item = B>,
+    B: BEDLike + Sortable,
+{
+    ExternalSorter::new()
+        .with_segment_size(50000000)
+        .with_sort_dir(PathBuf::from("./"))
+        .with_parallel_sort()
+        .sort_by(bed_iter,BEDLike::compare).unwrap()
+}
+
 pub struct MergeBed<I, B, F> {
     sorted_bed_iter: I,
     merger: F,
@@ -144,13 +158,13 @@ where
     MergeBed { sorted_bed_iter, merger, accum: None }
 }
 
-pub fn merge_bed_with<I, B, O, F>(bed_iter: I, merger: F) -> MergeBed<std::vec::IntoIter<B>, B, F>
+pub fn merge_bed_with<I, B, O, F>(bed_iter: I, merger: F) -> MergeBed<impl Iterator<Item = B>, B, F>
 where
     I: Iterator<Item = B>,
-    B: BEDLike,
+    B: BEDLike + Sortable,
     F: Fn(Vec<B>) -> O,
 {
-    merge_sorted_bed_with(bed_iter.sorted_by(BEDLike::compare), merger)
+    merge_sorted_bed_with(sort_bed(bed_iter), merger)
 }
 
 pub fn merge_sorted_bed<I, B>(sorted_bed_iter: I) -> MergeBed<I, B, impl Fn(Vec<B>) -> GenomicRange>
@@ -168,19 +182,18 @@ where
 
 pub fn merge_bed<I, B>(
     bed_iter: I
-) -> MergeBed<std::vec::IntoIter<B>, B, impl Fn(Vec<B>) -> GenomicRange>
+) -> MergeBed<impl Iterator<Item = B>, B, impl Fn(Vec<B>) -> GenomicRange>
 where
     I: Iterator<Item = B>,
-    B: BEDLike,
+    B: BEDLike + Sortable,
 {
-    merge_sorted_bed(bed_iter.sorted_by(BEDLike::compare))
+    merge_sorted_bed(sort_bed(bed_iter))
 }
 
 
 #[cfg(test)]
 mod bed_tests {
     use super::*;
-    use extsort::sorter::ExternalSorter;
 
     #[test]
     fn test_sort() {
@@ -192,8 +205,7 @@ mod bed_tests {
             GenomicRange::new("chr1", 1000, 1230),
             GenomicRange::new("chr1", 1000, 1230),
         ];
-        let sorter = ExternalSorter::new();
-        let sorted: Vec<_> = sorter.sort(data.clone().into_iter()).unwrap().collect();
+        let sorted: Vec<_> = sort_bed(data.clone().into_iter()).collect();
         data.sort();
         assert_eq!(data, sorted);
     }
