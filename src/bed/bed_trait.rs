@@ -94,7 +94,34 @@ where
         .with_segment_size(50000000)
         .with_sort_dir(PathBuf::from("./"))
         .with_parallel_sort()
-        .sort_by(bed_iter,BEDLike::compare).unwrap()
+        .sort_by(bed_iter, BEDLike::compare).unwrap()
+}
+
+pub fn sort_bed_by<I, B, F>(bed_iter: I, cmp: F) -> impl Iterator<Item = B>
+where
+    I: Iterator<Item = B>,
+    B: BEDLike + Sortable,
+    F: Fn(&B, &B) -> Ordering + Send + Sync, 
+{
+    ExternalSorter::new()
+        .with_segment_size(50000000)
+        .with_sort_dir(PathBuf::from("./"))
+        .with_parallel_sort()
+        .sort_by(bed_iter, cmp).unwrap()
+}
+
+pub fn sort_bed_by_key<I, B, F, K>(bed_iter: I, f: F) -> impl Iterator<Item = B>
+where
+    I: Iterator<Item = B>,
+    B: BEDLike + Sortable,
+    F: Fn(&B) -> K + Send + Sync,
+    K: Ord,
+{
+    ExternalSorter::new()
+        .with_segment_size(50000000)
+        .with_sort_dir(PathBuf::from("./"))
+        .with_parallel_sort()
+        .sort_by_key(bed_iter, f).unwrap()
 }
 
 pub struct MergeBed<I, B, F> {
