@@ -3,7 +3,8 @@ use crate::bed::{GenomicRange, Score, Strand};
 use itertools::Itertools;
 use std::{cmp::Ordering, io::Error};
 use extsort::{ExternalSorter, sorter::Sortable};
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
+use tempfile::{tempdir, Builder};
 
 /// Common BED fields
 pub trait BEDLike {
@@ -85,41 +86,50 @@ where
     })
 }
 
-pub fn sort_bed<I, B>(bed_iter: I) -> impl Iterator<Item = B>
+pub fn sort_bed<I, B, P>(bed_iter: I, tmp_dir: Option<P>) -> impl Iterator<Item = B>
 where
     I: Iterator<Item = B>,
     B: BEDLike + Sortable,
+    P: AsRef<Path>,
 {
-    ExternalSorter::new()
-        .with_segment_size(50000000)
-        .with_sort_dir(PathBuf::from("./"))
-        .with_parallel_sort()
-        .sort_by(bed_iter, BEDLike::compare).unwrap()
+    sort_bed_by(bed_iter, BEDLike::compare, tmp_dir)
 }
 
-pub fn sort_bed_by<I, B, F>(bed_iter: I, cmp: F) -> impl Iterator<Item = B>
+pub fn sort_bed_by<I, B, F, P>(bed_iter: I, cmp: F, tmp_dir: Option<P>) -> impl Iterator<Item = B>
 where
     I: Iterator<Item = B>,
     B: BEDLike + Sortable,
     F: Fn(&B, &B) -> Ordering + Send + Sync, 
+    P: AsRef<Path>,
 {
+    let tmp = if let Some(dir) = tmp_dir {
+        Builder::new().tempdir_in(dir)
+    } else {
+        tempdir()
+    }.expect("failed to create tmperorary directory");
     ExternalSorter::new()
         .with_segment_size(50000000)
-        .with_sort_dir(PathBuf::from("./"))
+        .with_sort_dir(tmp.path().to_path_buf())
         .with_parallel_sort()
         .sort_by(bed_iter, cmp).unwrap()
 }
 
-pub fn sort_bed_by_key<I, B, F, K>(bed_iter: I, f: F) -> impl Iterator<Item = B>
+pub fn sort_bed_by_key<I, B, F, K, P>(bed_iter: I, f: F, tmp_dir: Option<P>) -> impl Iterator<Item = B>
 where
     I: Iterator<Item = B>,
     B: BEDLike + Sortable,
     F: Fn(&B) -> K + Send + Sync,
     K: Ord,
+    P: AsRef<Path>,
 {
+    let tmp = if let Some(dir) = tmp_dir {
+        Builder::new().tempdir_in(dir)
+    } else {
+        tempdir()
+    }.expect("failed to create tmperorary directory");
     ExternalSorter::new()
         .with_segment_size(50000000)
-        .with_sort_dir(PathBuf::from("./"))
+        .with_sort_dir(tmp.path().to_path_buf())
         .with_parallel_sort()
         .sort_by_key(bed_iter, f).unwrap()
 }
@@ -185,13 +195,15 @@ where
     MergeBed { sorted_bed_iter, merger, accum: None }
 }
 
-pub fn merge_bed_with<I, B, O, F>(bed_iter: I, merger: F) -> MergeBed<impl Iterator<Item = B>, B, F>
+pub fn merge_bed_with<I, B, O, F, P>(bed_iter: I, merger: F, tmp_dir: Option<P>
+    ) -> MergeBed<impl Iterator<Item = B>, B, F>
 where
     I: Iterator<Item = B>,
     B: BEDLike + Sortable,
     F: Fn(Vec<B>) -> O,
+    P: AsRef<Path>,
 {
-    merge_sorted_bed_with(sort_bed(bed_iter), merger)
+    merge_sorted_bed_with(sort_bed(bed_iter, tmp_dir), merger)
 }
 
 pub fn merge_sorted_bed<I, B>(sorted_bed_iter: I) -> MergeBed<I, B, impl Fn(Vec<B>) -> GenomicRange>
@@ -207,14 +219,15 @@ where
     MergeBed { sorted_bed_iter, merger, accum: None }
 }
 
-pub fn merge_bed<I, B>(
-    bed_iter: I
+pub fn merge_bed<I, B, P>(
+    bed_iter: I, tmp_dir: Option<P>,
 ) -> MergeBed<impl Iterator<Item = B>, B, impl Fn(Vec<B>) -> GenomicRange>
 where
     I: Iterator<Item = B>,
     B: BEDLike + Sortable,
+    P: AsRef<Path>,
 {
-    merge_sorted_bed(sort_bed(bed_iter))
+    merge_sorted_bed(sort_bed(bed_iter, tmp_dir))
 }
 
 
@@ -232,7 +245,7 @@ mod bed_tests {
             GenomicRange::new("chr1", 1000, 1230),
             GenomicRange::new("chr1", 1000, 1230),
         ];
-        let sorted: Vec<_> = sort_bed(data.clone().into_iter()).collect();
+        let sorted: Vec<_> = sort_bed(data.clone().into_iter(), None::<&str>).collect();
         data.sort();
         assert_eq!(data, sorted);
     }
@@ -295,6 +308,6 @@ mod bed_tests {
             (2000, 2200),
         ].into_iter().map(|(a,b)| GenomicRange::new("chr1", a, b)).collect();
         assert_eq!(merge_sorted_bed(input.clone()).collect::<Vec<_>>(), expect);
-        assert_eq!(merge_bed(input.rev()).collect::<Vec<_>>(), expect);
+        assert_eq!(merge_bed(input.rev(), None::<&str>).collect::<Vec<_>>(), expect);
     }
 }
