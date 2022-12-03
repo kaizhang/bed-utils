@@ -1,8 +1,6 @@
 use std::ops::Range;
 use bio::data_structures::interval_tree::*;
 use std::collections::{BTreeMap, HashMap};
-use itertools::Itertools;
-use std::hash::Hash;
 use num::Integer;
 use num_traits::{Num, NumAssignOps, NumCast};
 
@@ -16,7 +14,7 @@ impl<D> Default for BedTree<D> {
     }
 }
 
-impl<D: Clone + Eq + Hash, B: BEDLike> FromIterator<(B, D)> for BedTree<D> {
+impl<D, B: BEDLike> FromIterator<(B, D)> for BedTree<D> {
     fn from_iter<I: IntoIterator<Item = (B, D)>>(iter: I) -> Self {
         let mut hmap: HashMap<String, Vec<(Range<u64>, D)>> = HashMap::new();
         for (bed, data) in iter {
@@ -25,7 +23,8 @@ impl<D: Clone + Eq + Hash, B: BEDLike> FromIterator<(B, D)> for BedTree<D> {
             let vec = hmap.entry(chr.to_string()).or_insert(Vec::new());
             vec.push((interval, data));
         }
-        let hm = hmap.into_iter().map(|(chr, vec)| (chr, vec.into_iter().unique().collect())).collect();
+        //let hm = hmap.into_iter().map(|(chr, vec)| (chr, vec.into_iter().unique().collect())).collect();
+        let hm = hmap.into_iter().map(|(chr, vec)| (chr, vec.into_iter().collect())).collect();
         BedTree(hm)
     }
 }
@@ -290,19 +289,26 @@ mod bed_intersect_tests {
 
     #[test]
     fn test_intersect() {
-        let bed_set1: Vec<GenomicRange> = vec![
-            GenomicRange::new("chr1".to_string(), 200, 500),
-            GenomicRange::new("chr1".to_string(), 1000, 2000),
-        ];
-        let bed_set2: Vec<GenomicRange> = vec![
-            GenomicRange::new("chr1".to_string(), 100, 210),
-            GenomicRange::new("chr1".to_string(), 100, 200),
-        ];
+        let bed_set1: Vec<GenomicRange> = [
+            "chr1:200-500",
+            "chr1:200-500",
+            "chr1:1000-2000",
+        ].into_iter().map(|x| x.parse().unwrap()).collect();
+        let bed_set2: Vec<GenomicRange> = [
+            "chr1:100-210",
+            "chr1:100-200",
+        ].into_iter().map(|x| x.parse().unwrap()).collect();
+        let tree: BedTree<()> = bed_set1.clone().into_iter().map(|x| (x, ())).collect();
 
-        let tree: BedTree<()> = bed_set1.into_iter().map(|x| (x, ())).collect();
+        assert_eq!(
+            tree.find(&bed_set2[0]).map(|x| x.0).collect::<Vec<_>>(),
+            vec![bed_set1.as_slice()[0].clone(), bed_set1.as_slice()[0].clone()]
+        );
+
         let result: Vec<GenomicRange> = bed_set2.into_iter().filter(|x| tree.is_overlapped(x)).collect();
-        let expected = vec![GenomicRange::new("chr1".to_string(), 100, 210)];
+        let expected = vec!["chr1:100-210".parse().unwrap()];
         assert_eq!(result, expected);
+
     }
 
     #[test]
@@ -375,4 +381,3 @@ mod bed_intersect_tests {
     }
 
 }
-

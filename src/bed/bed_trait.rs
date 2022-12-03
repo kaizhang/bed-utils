@@ -1,9 +1,8 @@
 use crate::bed::{GenomicRange, Score, Strand};
 
-use itertools::Itertools;
-use std::{cmp::Ordering, io::Error};
+use std::cmp::Ordering;
 use extsort::{ExternalSorter, sorter::Sortable};
-use std::path::{PathBuf, Path};
+use std::path::Path;
 use tempfile::{tempdir, Builder};
 
 /// Common BED fields
