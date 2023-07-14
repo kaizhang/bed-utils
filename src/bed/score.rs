@@ -43,14 +43,15 @@ impl FromStr for Score {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let n: u16 = lexical::parse(s).map_err(ParseError::Parse)?;
-        Self::try_from(n).map_err(ParseError::Invalid)
+        let n: u32 = lexical::parse(s).map_err(ParseError::Parse)?;
+        Ok(Self::try_from(n).unwrap_or(Score(1000)))
+        //map_err(ParseError::Invalid)
     }
 }
 
 /// An error returned when a raw BED record score fails to convert.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TryFromIntError(u16);
+pub struct TryFromIntError(u32);
 
 impl error::Error for TryFromIntError {}
 
@@ -60,11 +61,23 @@ impl fmt::Display for TryFromIntError {
     }
 }
 
+impl TryFrom<u32> for Score {
+    type Error = TryFromIntError;
+
+    fn try_from(n: u32) -> Result<Self, Self::Error> {
+        if n > 1000 {
+            Err(TryFromIntError(n))
+        } else {
+            Ok(Self(n as u16))
+        }
+    }
+}
+
 impl TryFrom<u16> for Score {
     type Error = TryFromIntError;
 
     fn try_from(n: u16) -> Result<Self, Self::Error> {
-        Ok(Self(n))
+        Self::try_from(n as u32)
     }
 }
 
@@ -86,8 +99,8 @@ mod tests {
 
     #[test]
     fn test_try_from_u16_for_score() {
-        assert_eq!(Score::try_from(1), Ok(Score(1)));
-        assert_eq!(Score::try_from(1000), Ok(Score(1000)));
+        assert_eq!(Score::try_from(1u16), Ok(Score(1)));
+        assert_eq!(Score::try_from(1000u16), Ok(Score(1000)));
     }
 
     #[test]
