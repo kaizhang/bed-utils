@@ -184,7 +184,7 @@ pub struct BinnedCoverage<'a, B, N> {
 impl <'a, N: Num + NumCast + NumAssignOps + Copy, B: BEDLike> BinnedCoverage<'a, B, N> {
     pub fn new(genome_regions: &'a GenomeRegions<B>, bin_size: u64) -> Self {
         let coverage: Vec<Vec<N>> = genome_regions.regions.iter()
-            .map(|x| vec![N::zero(); x.len().div_ceil(&bin_size) as usize])
+            .map(|x| vec![N::zero(); x.len().div_ceil(bin_size) as usize])
             .collect();
         let len = coverage.iter().map(|x| x.len()).sum();
         Self {genome_regions, len, bin_size, coverage, consumed_tags: 0.0}
@@ -233,7 +233,7 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy, B: BEDLike> SparseBinnedCovera
     pub fn new(genome_regions: &'a GenomeRegions<B>, bin_size: u64) -> Self {
         let mut len = 0;
         let accu_size = genome_regions.regions.iter().map(|x| {
-            let n = x.len().div_ceil(&bin_size) as usize;
+            let n = x.len().div_ceil(bin_size) as usize;
             let output = len;
             len += n;
             output
