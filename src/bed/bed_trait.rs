@@ -35,8 +35,9 @@ pub trait BEDLike {
     /// Return the strand of the record
     fn strand(&self) -> Option<Strand> { None }
 
-    /// Return the length of the record
-    fn len(&self) -> u64 { self.end() - self.start() }
+    /// Return the length of the record. Return 0 if the end position is smaller
+    /// than the start position.
+    fn len(&self) -> u64 { self.end().saturating_sub(self.start()) }
 
     fn compare(&self, other: &Self) -> Ordering {
         self.chrom().cmp(other.chrom())
