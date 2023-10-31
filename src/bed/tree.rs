@@ -281,6 +281,29 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy, B: BEDLike> SparseBinnedCovera
         self.coverage.iter().for_each(|(idx, v)| coverage[*idx] = *v);
         coverage
     }
+
+    pub fn get_region_coverage(&'a self) -> impl Iterator<Item = (GenomicRange, N)> + 'a {
+        self.get_coverage().iter().map(|(i, v)| {
+            let region = match self.accu_size.binary_search(&i) {
+                Ok(j) => {
+                    let site = &self.genome_regions.regions[j];
+                    let chr = site.chrom();
+                    let start = site.start();
+                    let end = (start + self.bin_size).min(site.end());
+                    GenomicRange::new(chr, start, end)
+                },
+                Err(j) => {
+                    let site = &self.genome_regions.regions[j-1];
+                    let chr = site.chrom();
+                    let prev = self.accu_size[j-1];
+                    let start = site.start() + ((i - prev) as u64) * self.bin_size;
+                    let end = (start + self.bin_size).min(site.end());
+                    GenomicRange::new(chr, start, end)
+                }
+            };
+            (region, *v)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -377,6 +400,18 @@ mod bed_intersect_tests {
         assert_eq!(
             vec![(0, 1), (5, 2), (6, 1), (11, 1)],
             cov.get_coverage().iter().map(|(i, x)| (*i, *x)).collect::<Vec<(usize, u64)>>()
+        );
+
+        let expected: Vec<_> = cov.get_regions().flatten().zip(
+            cov.get_coverage_as_vec().iter()
+        ).flat_map(|(region, x)| if *x == 0 {
+            None
+        } else {
+            Some((region, *x))
+        }).collect();
+        assert_eq!(
+            expected,
+            cov.get_region_coverage().collect::<Vec<_>>(),
         );
     }
 
