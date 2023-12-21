@@ -1,9 +1,12 @@
 [package]
 name = "bed-utils"
+description = "Utilities for manipulating genomic range objects"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.73"
 authors = ["Kai Zhang <kai@kzhang.org>"]
+license = "MIT"
+repository = "https://github.com/kaizhang/bed-utils"
 
 [dependencies]
 num-traits = "0.2.14"
