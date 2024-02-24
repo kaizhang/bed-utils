@@ -1,9 +1,9 @@
 [package]
 name = "bed-utils"
 description = "Utilities for manipulating genomic range objects"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
-rust-version = "1.73"
+rust-version = "1.76"
 authors = ["Kai Zhang <kai@kzhang.org>"]
 license = "MIT"
 repository = "https://github.com/kaizhang/bed-utils"

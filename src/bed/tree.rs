@@ -109,7 +109,7 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy, B: BEDLike> Coverage<'a, B, N>
         self.coverage.fill(N::zero());
     }
 
-    pub fn get_index<D>(&mut self, tag: &D) -> impl Iterator<Item = usize> + '_
+    pub fn get_index<D>(&self, tag: &D) -> impl Iterator<Item = usize> + '_
     where
         D: BEDLike,
     {
@@ -160,7 +160,7 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy, B: BEDLike> SparseCoverage<'a,
         self.coverage = BTreeMap::new();
     }
 
-    pub fn get_index<D>(&mut self, tag: &D) -> impl Iterator<Item = usize> + '_
+    pub fn get_index<D>(&self, tag: &D) -> impl Iterator<Item = usize> + '_
     where
         D: BEDLike,
     {
