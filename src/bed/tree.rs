@@ -109,12 +109,25 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy, B: BEDLike> Coverage<'a, B, N>
         self.coverage.fill(N::zero());
     }
 
+    pub fn get_index<D>(&mut self, tag: &D) -> impl Iterator<Item = usize> + '_
+    where
+        D: BEDLike,
+    {
+        self.genome_regions.indices.find(tag).map(|x| x.1).copied()
+    }
+
     pub fn insert<D>(&mut self, tag: &D, count: N)
     where
         D: BEDLike,
     {
         self.consumed_tags += <f64 as NumCast>::from(count).unwrap();
         self.genome_regions.indices.find(tag).for_each(|(_, idx)| self.coverage[*idx] += count);
+    }
+
+    pub fn insert_at_index<D>(&mut self, index: usize, count: N)
+    {
+        self.consumed_tags += <f64 as NumCast>::from(count).unwrap();
+        self.coverage[index] += count;
     }
 
     pub fn get_regions(&'a self) -> impl Iterator<Item = &B> + 'a
@@ -147,15 +160,27 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy, B: BEDLike> SparseCoverage<'a,
         self.coverage = BTreeMap::new();
     }
 
+    pub fn get_index<D>(&mut self, tag: &D) -> impl Iterator<Item = usize> + '_
+    where
+        D: BEDLike,
+    {
+        self.genome_regions.indices.find(tag).map(|x| x.1).copied()
+    }
+
     pub fn insert<D>(&mut self, tag: &D, count: N)
     where
         D: BEDLike,
     {
         self.consumed_tags += <f64 as NumCast>::from(count).unwrap();
         self.genome_regions.indices.find(tag).for_each(|(_, idx)| {
-            let counter = self.coverage.entry(*idx).or_insert(N::zero());
-            *counter += count;
+            self.coverage.entry(*idx).and_modify(|x| *x += count).or_insert(count);
         });
+    }
+
+    pub fn insert_at_index<D>(&mut self, index: usize, count: N)
+    {
+        self.consumed_tags += <f64 as NumCast>::from(count).unwrap();
+        self.coverage.entry(index).and_modify(|x| *x += count).or_insert(count);
     }
 
     pub fn get_regions(&'a self) -> impl Iterator<Item = &B> + 'a
