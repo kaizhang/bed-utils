@@ -13,7 +13,7 @@ fn main() -> io::Result<()> {
     sorter.sort_by(
         Reader::new(file, None).records::<BED<6>>().map(|x| x.unwrap()),
         BEDLike::compare,
-    )?.for_each(|x| println!("{}", x));
+    )?.for_each(|x| println!("{}", x.unwrap()));
 
     Ok(())
 }

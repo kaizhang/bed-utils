@@ -10,7 +10,7 @@ pub use strand::Strand;
 
 use std::{fmt::{self, Write}, ops::Deref, str::FromStr};
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
-use extsort::sorter::Sortable;
+use extsort::Sortable;
 use bincode;
 
 const DELIMITER: char = '\t';
@@ -69,13 +69,14 @@ impl BEDLike for GenomicRange {
     fn strand(&self) -> Option<Strand> { None }
 }
 
+
 impl Sortable for GenomicRange {
-    fn encode<W: std::io::Write>(&self, writer: &mut W) {
-        bincode::serialize_into(writer, self).unwrap();
+    fn encode<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        to_io_result(bincode::serialize_into(writer, self))
     }
 
-    fn decode<R: std::io::Read>(reader: &mut R) -> Option<Self> {
-        bincode::deserialize_from(reader).ok()
+    fn decode<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        to_io_result(bincode::deserialize_from(reader))
     }
 }
 
@@ -178,12 +179,12 @@ impl<const N: u8> FromStr for BED<N> {
 }
 
 impl<const N: u8> Sortable for BED<N> {
-    fn encode<W: std::io::Write>(&self, writer: &mut W) {
-        bincode::serialize_into(writer, self).unwrap();
+    fn encode<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()>{
+        to_io_result(bincode::serialize_into(writer, self))
     }
 
-    fn decode<R: std::io::Read>(reader: &mut R) -> Option<Self> {
-        bincode::deserialize_from(reader).ok()
+    fn decode<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        to_io_result(bincode::deserialize_from(reader))
     }
 }
 
@@ -237,12 +238,12 @@ pub struct NarrowPeak {
 
 impl Sortable for NarrowPeak
 {
-    fn encode<W: std::io::Write>(&self, writer: &mut W) {
-        bincode::serialize_into(writer, self).unwrap();
+    fn encode<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        to_io_result(bincode::serialize_into(writer, self))
     }
 
-    fn decode<R: std::io::Read>(reader: &mut R) -> Option<Self> {
-        bincode::deserialize_from(reader).ok()
+    fn decode<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        to_io_result(bincode::deserialize_from(reader))
     }
 }
 
@@ -405,12 +406,12 @@ impl<V> Sortable for BedGraph<V>
 where
     V: std::marker::Send + Serialize + DeserializeOwned,
 {
-    fn encode<W: std::io::Write>(&self, writer: &mut W) {
-        bincode::serialize_into(writer, self).unwrap();
+    fn encode<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        to_io_result(bincode::serialize_into(writer, self))
     }
 
-    fn decode<R: std::io::Read>(reader: &mut R) -> Option<Self> {
-        bincode::deserialize_from(reader).ok()
+    fn decode<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        to_io_result(bincode::deserialize_from(reader))
     }
 }
 
@@ -507,6 +508,11 @@ pub enum ParseError {
     InvalidStrand(strand::ParseError),
 }
 
+fn to_io_result<R>(result: Result<R, Box<bincode::ErrorKind>>) -> std::io::Result<R> {
+    result.map_err(|x|
+        std::io::Error::new(std::io::ErrorKind::Other, x.to_string())
+    )
+}
 
 #[cfg(test)]
 mod bed_tests {

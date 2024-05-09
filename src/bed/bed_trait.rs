@@ -1,8 +1,9 @@
 use crate::bed::{GenomicRange, Score, Strand};
 
 use std::cmp::Ordering;
-use extsort::{ExternalSorter, sorter::Sortable};
+use extsort::{ExternalSorter, Sortable};
 use std::path::Path;
+use std::io::Result;
 use tempfile::{tempdir, Builder};
 
 /// Common BED fields
@@ -86,7 +87,7 @@ where
     })
 }
 
-pub fn sort_bed<I, B, P>(bed_iter: I, tmp_dir: Option<P>) -> impl Iterator<Item = B>
+pub fn sort_bed<I, B, P>(bed_iter: I, tmp_dir: Option<P>) -> impl Iterator<Item = Result<B>>
 where
     I: Iterator<Item = B>,
     B: BEDLike + Sortable,
@@ -95,11 +96,11 @@ where
     sort_bed_by(bed_iter, BEDLike::compare, tmp_dir)
 }
 
-pub fn sort_bed_by<I, B, F, P>(bed_iter: I, cmp: F, tmp_dir: Option<P>) -> impl Iterator<Item = B>
+pub fn sort_bed_by<I, B, F, P>(bed_iter: I, cmp: F, tmp_dir: Option<P>) -> impl Iterator<Item = Result<B>>
 where
     I: Iterator<Item = B>,
     B: BEDLike + Sortable,
-    F: Fn(&B, &B) -> Ordering + Send + Sync, 
+    F: Fn(&B, &B) -> Ordering + Send + Sync + Clone, 
     P: AsRef<Path>,
 {
     let tmp = if let Some(dir) = tmp_dir {
@@ -114,11 +115,11 @@ where
         .sort_by(bed_iter, cmp).unwrap()
 }
 
-pub fn sort_bed_by_key<I, B, F, K, P>(bed_iter: I, f: F, tmp_dir: Option<P>) -> impl Iterator<Item = B>
+pub fn sort_bed_by_key<I, B, F, K, P>(bed_iter: I, f: F, tmp_dir: Option<P>) -> impl Iterator<Item = Result<B>>
 where
     I: Iterator<Item = B>,
     B: BEDLike + Sortable,
-    F: Fn(&B) -> K + Send + Sync,
+    F: Fn(&B) -> K + Send + Sync + Clone,
     K: Ord,
     P: AsRef<Path>,
 {
@@ -203,7 +204,7 @@ where
     F: Fn(Vec<B>) -> O,
     P: AsRef<Path>,
 {
-    merge_sorted_bed_with(sort_bed(bed_iter, tmp_dir), merger)
+    merge_sorted_bed_with(sort_bed(bed_iter, tmp_dir).map(|x| x.unwrap()), merger)
 }
 
 pub fn merge_sorted_bed<I, B>(sorted_bed_iter: I) -> MergeBed<I, B, impl Fn(Vec<B>) -> GenomicRange>
@@ -227,7 +228,7 @@ where
     B: BEDLike + Sortable,
     P: AsRef<Path>,
 {
-    merge_sorted_bed(sort_bed(bed_iter, tmp_dir))
+    merge_sorted_bed(sort_bed(bed_iter, tmp_dir).map(|x| x.unwrap()))
 }
 
 
@@ -245,9 +246,9 @@ mod bed_tests {
             GenomicRange::new("chr1", 1000, 1230),
             GenomicRange::new("chr1", 1000, 1230),
         ];
-        let sorted: Vec<_> = sort_bed(data.clone().into_iter(), None::<&str>).collect();
+        let sorted: Result<Vec<_>> = sort_bed(data.clone().into_iter(), None::<&str>).collect();
         data.sort();
-        assert_eq!(data, sorted);
+        assert_eq!(data, sorted.unwrap());
     }
 
     #[test]
