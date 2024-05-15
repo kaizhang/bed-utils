@@ -1,11 +1,12 @@
-use std::{env, fs::File, io};
+use std::{env, error::Error, fs::File, io};
 use bed_utils::bed::{BEDLike, io::Reader, NarrowPeak, merge_bed_with};
 use std::path::Path;
 use flate2::read::MultiGzDecoder;
 
-pub fn merge_peaks<I>(peaks: I, half_window_size: u64) -> impl Iterator<Item = Vec<NarrowPeak>>
+pub fn merge_peaks<I, E>(peaks: I, half_window_size: u64) -> impl Iterator<Item = Vec<NarrowPeak>>
 where
-    I: Iterator<Item = NarrowPeak>,
+    I: Iterator<Item = Result<NarrowPeak, E>>,
+    E: Error,
 {
     fn iterative_merge(mut peaks: Vec<NarrowPeak>) -> Vec<NarrowPeak> {
         let mut result = Vec::new();
@@ -20,13 +21,13 @@ where
     }
 
     merge_bed_with(
-        peaks.map(move |mut x| {
+        peaks.map(move |r| r.map(|mut x| {
             let summit = x.start() + x.peak;
             x.start = summit.saturating_sub(half_window_size);
             x.end = summit + half_window_size + 1;
             x.peak = summit - x.start;
             x
-        }),
+        })),
         iterative_merge,
         None::<&str>,
     )
@@ -51,7 +52,7 @@ fn main() -> io::Result<()> {
 
     let peak_iter = files.into_iter().flat_map(|fl|
         Reader::new(open_file(fl), None)
-        .into_records::<NarrowPeak>().map(Result::unwrap)
+        .into_records::<NarrowPeak>()
     );
     let peaks: Vec<_> = merge_peaks(peak_iter, 250).flatten().collect();
     for peak in peaks {

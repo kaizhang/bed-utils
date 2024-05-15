@@ -10,7 +10,6 @@ pub use strand::Strand;
 
 use std::{fmt::{self, Write}, ops::Deref, str::FromStr};
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
-use extsort::Sortable;
 use bincode;
 
 const DELIMITER: char = '\t';
@@ -67,17 +66,6 @@ impl BEDLike for GenomicRange {
     fn name(&self) -> Option<&str> { None }
     fn score(&self) -> Option<Score> { None }
     fn strand(&self) -> Option<Strand> { None }
-}
-
-
-impl Sortable for GenomicRange {
-    fn encode<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        to_io_result(bincode::serialize_into(writer, self))
-    }
-
-    fn decode<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        to_io_result(bincode::deserialize_from(reader))
-    }
 }
 
 impl fmt::Display for GenomicRange {
@@ -178,16 +166,6 @@ impl<const N: u8> FromStr for BED<N> {
     }
 }
 
-impl<const N: u8> Sortable for BED<N> {
-    fn encode<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()>{
-        to_io_result(bincode::serialize_into(writer, self))
-    }
-
-    fn decode<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        to_io_result(bincode::deserialize_from(reader))
-    }
-}
-
 /// Generic BED record optional fields.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
 pub struct OptionalFields(Vec<String>);
@@ -234,17 +212,6 @@ pub struct NarrowPeak {
     pub p_value: f64, 
     pub q_value: f64, 
     pub peak: u64, 
-}
-
-impl Sortable for NarrowPeak
-{
-    fn encode<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        to_io_result(bincode::serialize_into(writer, self))
-    }
-
-    fn decode<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        to_io_result(bincode::deserialize_from(reader))
-    }
 }
 
 impl BEDLike for NarrowPeak {
@@ -399,19 +366,6 @@ where
             end: parse_end(&mut fields)?,
             value: fields.next().unwrap().parse().unwrap(),
         })
-    }
-}
-
-impl<V> Sortable for BedGraph<V>
-where
-    V: std::marker::Send + Serialize + DeserializeOwned,
-{
-    fn encode<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        to_io_result(bincode::serialize_into(writer, self))
-    }
-
-    fn decode<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        to_io_result(bincode::deserialize_from(reader))
     }
 }
 
