@@ -2,14 +2,14 @@
 
 use std::error::Error;
 use std::fmt::{self, Display};
-use std::fs;
-use std::io;
+use std::io::{self, BufReader, BufWriter};
 use std::io::prelude::*;
 use std::marker::PhantomData;
-use lz4::{Decoder, Encoder, EncoderBuilder};
+use lz4::{Decoder, EncoderBuilder};
 
 use bincode::Options;
 use byteorder::{ReadBytesExt, WriteBytesExt};
+use serde::Serialize;
 use tempfile;
 
 /// External chunk error
@@ -46,7 +46,7 @@ impl Display for ExternalChunkError {
 
 /// External chunk interface. Provides methods for creating a chunk stored on file system and reading data from it.
 pub struct ExternalChunk<T> {
-    reader: Decoder<fs::File>,
+    reader: Box<dyn Read>,
     item_type: PhantomData<T>,
 }
 
@@ -54,47 +54,52 @@ impl<T> ExternalChunk<T>
 where
     T: serde::ser::Serialize + serde::de::DeserializeOwned,
 {
-    fn new(reader: Decoder<fs::File>) -> Self {
-        Self { reader, item_type: PhantomData }
-    }
-
-    fn dump(
-        chunk_writer: &mut Encoder<fs::File>,
-        items: impl IntoIterator<Item = T>,
-    ) -> Result<(), ExternalChunkError> {
-        let ser = bincode::DefaultOptions::new();
-        for item in items.into_iter() {
-            let result = ser.serialize(&item).map_err(ExternalChunkError::from)?;
-            let size = result.len() as u64;
-            chunk_writer.write_u64::<byteorder::LittleEndian>(size)?;
-            chunk_writer.write(result.as_slice())?;
-        }
-        return Ok(());
-    }
-
     /// Builds an instance of an external chunk creating file and dumping the items to it.
     ///
     /// # Arguments
     /// * `dir` - Directory the chunk file is created in
     /// * `items` - Items to be dumped to the chunk
     /// * `buf_size` - File I/O buffer size
-    pub(crate) fn build(
+    pub(crate) fn new(
         dir: &tempfile::TempDir,
         items: impl IntoIterator<Item = T>,
+        compression: Option<u32>,
     ) -> Result<Self, ExternalChunkError> {
         let mut tmp_file = tempfile::tempfile_in(dir)?;
 
-        let mut chunk_writer = EncoderBuilder::new()
-            .level(2)
-            .build(tmp_file.try_clone()?)?;
-
-        Self::dump(&mut chunk_writer, items)?;
-        chunk_writer.finish().1?;
+        if let Some(level) = compression {
+            let mut writer = EncoderBuilder::new().level(level).build(tmp_file.try_clone()?)?;
+            dump(&mut writer, items)?;
+            writer.finish().1?;
+        } else {
+            let mut writer = BufWriter::new(tmp_file.try_clone()?);
+            dump(&mut writer, items)?;
+            writer.flush()?;
+        }
 
         tmp_file.rewind()?;
-        let chunk_reader = Decoder::new(tmp_file.try_clone()?)?;
-        return Ok(Self::new(chunk_reader));
+        if let Some(_) = compression {
+            let reader = Box::new(Decoder::new(tmp_file)?);
+            Ok(Self { reader, item_type: PhantomData })
+        } else {
+            let reader = Box::new(BufReader::new(tmp_file));
+            Ok(Self { reader, item_type: PhantomData })
+        }
     }
+}
+
+fn dump<T: Serialize, R: Write>(
+    chunk_writer: &mut R,
+    items: impl IntoIterator<Item = T>,
+) -> Result<(), ExternalChunkError> {
+    let ser = bincode::DefaultOptions::new();
+    for item in items.into_iter() {
+        let result = ser.serialize(&item).map_err(ExternalChunkError::from)?;
+        let size = result.len() as u64;
+        chunk_writer.write_u64::<byteorder::LittleEndian>(size)?;
+        chunk_writer.write(result.as_slice())?;
+    }
+    return Ok(());
 }
 
 impl<T> Iterator for ExternalChunk<T>
@@ -137,7 +142,7 @@ mod test {
     fn test_chunk(tmp_dir: tempfile::TempDir) {
         let saved = Vec::from_iter(0..100);
 
-        let chunk: ExternalChunk<i32> = ExternalChunk::build(&tmp_dir, saved.clone()).unwrap();
+        let chunk: ExternalChunk<i32> = ExternalChunk::new(&tmp_dir, saved.clone(), None).unwrap();
 
         let restored: Result<Vec<i32>, _> = chunk.collect();
         let restored = restored.unwrap();

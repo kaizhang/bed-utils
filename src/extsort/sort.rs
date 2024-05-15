@@ -66,6 +66,7 @@ pub struct ExternalSorterBuilder {
     chunk_size: usize,
     tmp_dir: Option<PathBuf>,
     num_threads: Option<usize>,
+    compression: Option<u32>,
 }
 
 impl ExternalSorterBuilder {
@@ -74,6 +75,7 @@ impl ExternalSorterBuilder {
             chunk_size: 50000000,
             tmp_dir: None,
             num_threads: None,
+            compression: None,
         }
     }
 
@@ -97,6 +99,11 @@ impl ExternalSorterBuilder {
         self
     }
 
+    pub fn with_compression(mut self, level: u32) -> Self {
+        self.compression = Some(level);
+        self
+    }
+
     /// Uses Rayon to sort the in-memory buffer.
     ///
     /// This may not be needed if the buffer isn't big enough for parallelism to
@@ -109,6 +116,7 @@ impl ExternalSorterBuilder {
     pub fn build(self) -> io::Result<ExternalSorter> {
         Ok(ExternalSorter {
             chunk_size: self.chunk_size,
+            compression: self.compression,
             tmp_dir: _init_tmp_directory(self.tmp_dir.as_deref())?,
             thread_pool: _init_thread_pool(self.num_threads)?,
         })
@@ -117,6 +125,7 @@ impl ExternalSorterBuilder {
 
 pub struct ExternalSorter {
     chunk_size: usize,
+    compression: Option<u32>,
     /// Sorting thread pool.
     thread_pool: rayon::ThreadPool,
     /// Directory to be used to store temporary data.
@@ -181,7 +190,7 @@ impl ExternalSorter {
         });
 
         let external_chunk =
-            ExternalChunk::build(&self.tmp_dir, buffer).map_err(|err| match err {
+            ExternalChunk::new(&self.tmp_dir, buffer, self.compression).map_err(|err| match err {
                 ExternalChunkError::IO(err) => SortError::IO(err),
                 ExternalChunkError::SerializationError(err) => SortError::SerializationError(err),
             })?;

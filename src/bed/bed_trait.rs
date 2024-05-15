@@ -190,15 +190,23 @@ mod bed_tests {
         let data2 = rand_bed(100000);
 
         [data1, data2].into_iter().for_each(|mut data| {
-            let sorted = ExternalSorterBuilder::new()
+            let sorted1 = ExternalSorterBuilder::new()
                 .num_threads(2)
                 .with_chunk_size(10000)
                 .build()
                 .unwrap()
                 .sort(data.clone().into_iter().map(|x| std::io::Result::Ok(x))).unwrap()
                 .collect::<Result<Vec<_>, _>>().unwrap();
+            let sorted2 = ExternalSorterBuilder::new()
+                .with_chunk_size(10000)
+                .with_compression(4)
+                .build()
+                .unwrap()
+                .sort(data.clone().into_iter().map(|x| std::io::Result::Ok(x))).unwrap()
+                .collect::<Result<Vec<_>, _>>().unwrap();
             data.sort();
-            assert_eq!(data, sorted);
+            assert_eq!(data, sorted1);
+            assert_eq!(data, sorted2);
         })
     }
 
