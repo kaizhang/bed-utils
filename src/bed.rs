@@ -9,8 +9,7 @@ mod strand;
 pub use strand::Strand;
 
 use std::{fmt::{self, Write}, ops::Deref, str::FromStr};
-use serde::{Serialize, Deserialize, de::DeserializeOwned};
-use bincode;
+use serde::{Serialize, Deserialize};
 
 const DELIMITER: char = '\t';
 const MISSING_ITEM : &str = ".";
@@ -460,12 +459,6 @@ pub enum ParseError {
     MissingStrand,
     /// The strand is invalid.
     InvalidStrand(strand::ParseError),
-}
-
-fn to_io_result<R>(result: Result<R, Box<bincode::ErrorKind>>) -> std::io::Result<R> {
-    result.map_err(|x|
-        std::io::Error::new(std::io::ErrorKind::Other, x.to_string())
-    )
 }
 
 #[cfg(test)]

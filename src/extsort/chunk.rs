@@ -6,6 +6,7 @@ use std::fs;
 use std::io;
 use std::io::prelude::*;
 use std::marker::PhantomData;
+use lz4::{Decoder, Encoder, EncoderBuilder};
 
 use bincode::Options;
 use byteorder::{ReadBytesExt, WriteBytesExt};
@@ -45,7 +46,7 @@ impl Display for ExternalChunkError {
 
 /// External chunk interface. Provides methods for creating a chunk stored on file system and reading data from it.
 pub struct ExternalChunk<T> {
-    reader: io::BufReader<fs::File>,
+    reader: Decoder<fs::File>,
     item_type: PhantomData<T>,
 }
 
@@ -53,12 +54,12 @@ impl<T> ExternalChunk<T>
 where
     T: serde::ser::Serialize + serde::de::DeserializeOwned,
 {
-    fn new(reader: io::BufReader<fs::File>) -> Self {
+    fn new(reader: Decoder<fs::File>) -> Self {
         Self { reader, item_type: PhantomData }
     }
 
     fn dump(
-        chunk_writer: &mut io::BufWriter<fs::File>,
+        chunk_writer: &mut Encoder<fs::File>,
         items: impl IntoIterator<Item = T>,
     ) -> Result<(), ExternalChunkError> {
         let ser = bincode::DefaultOptions::new();
@@ -80,25 +81,18 @@ where
     pub(crate) fn build(
         dir: &tempfile::TempDir,
         items: impl IntoIterator<Item = T>,
-        buf_size: Option<usize>,
     ) -> Result<Self, ExternalChunkError> {
-        let tmp_file = tempfile::tempfile_in(dir)?;
+        let mut tmp_file = tempfile::tempfile_in(dir)?;
 
-        let mut chunk_writer = match buf_size {
-            Some(buf_size) => io::BufWriter::with_capacity(buf_size, tmp_file.try_clone()?),
-            None => io::BufWriter::new(tmp_file.try_clone()?),
-        };
+        let mut chunk_writer = EncoderBuilder::new()
+            .level(2)
+            .build(tmp_file.try_clone()?)?;
 
         Self::dump(&mut chunk_writer, items)?;
+        chunk_writer.finish().1?;
 
-        chunk_writer.flush()?;
-
-        let mut chunk_reader = match buf_size {
-            Some(buf_size) => io::BufReader::with_capacity(buf_size, tmp_file.try_clone()?),
-            None => io::BufReader::new(tmp_file.try_clone()?),
-        };
-
-        chunk_reader.rewind()?;
+        tmp_file.rewind()?;
+        let chunk_reader = Decoder::new(tmp_file.try_clone()?)?;
         return Ok(Self::new(chunk_reader));
     }
 }
@@ -143,7 +137,7 @@ mod test {
     fn test_chunk(tmp_dir: tempfile::TempDir) {
         let saved = Vec::from_iter(0..100);
 
-        let chunk: ExternalChunk<i32> = ExternalChunk::build(&tmp_dir, saved.clone(), None).unwrap();
+        let chunk: ExternalChunk<i32> = ExternalChunk::build(&tmp_dir, saved.clone()).unwrap();
 
         let restored: Result<Vec<i32>, _> = chunk.collect();
         let restored = restored.unwrap();

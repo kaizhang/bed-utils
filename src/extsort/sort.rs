@@ -181,7 +181,7 @@ impl ExternalSorter {
         });
 
         let external_chunk =
-            ExternalChunk::build(&self.tmp_dir, buffer, None).map_err(|err| match err {
+            ExternalChunk::build(&self.tmp_dir, buffer).map_err(|err| match err {
                 ExternalChunkError::IO(err) => SortError::IO(err),
                 ExternalChunkError::SerializationError(err) => SortError::SerializationError(err),
             })?;

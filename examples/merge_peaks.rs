@@ -1,7 +1,8 @@
 use std::{env, error::Error, fs::File, io};
-use bed_utils::bed::{BEDLike, io::Reader, NarrowPeak, merge_bed_with};
+use bed_utils::bed::{BEDLike, io::Reader, NarrowPeak, merge_sorted_bed_with};
 use std::path::Path;
 use flate2::read::MultiGzDecoder;
+use bed_utils::extsort::ExternalSorterBuilder;
 
 pub fn merge_peaks<I, E>(peaks: I, half_window_size: u64) -> impl Iterator<Item = Vec<NarrowPeak>>
 where
@@ -20,16 +21,17 @@ where
         result
     }
 
-    merge_bed_with(
-        peaks.map(move |r| r.map(|mut x| {
-            let summit = x.start() + x.peak;
-            x.start = summit.saturating_sub(half_window_size);
-            x.end = summit + half_window_size + 1;
-            x.peak = summit - x.start;
-            x
-        })),
+    let input = peaks.map(move |r| r.map(|mut x| {
+        let summit = x.start() + x.peak;
+        x.start = summit.saturating_sub(half_window_size);
+        x.end = summit + half_window_size + 1;
+        x.peak = summit - x.start;
+        x
+    }));
+    let input = ExternalSorterBuilder::new().build().unwrap().sort_by(input, BEDLike::compare).unwrap();
+    merge_sorted_bed_with(
+        input.map(|x| x.unwrap()),
         iterative_merge,
-        None::<&str>,
     )
 }
 
