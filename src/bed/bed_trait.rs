@@ -1,11 +1,6 @@
 use crate::bed::{GenomicRange, Score, Strand};
 
-use std::{cmp::Ordering, error::Error};
-use ext_sort::{buffer::mem::MemoryLimitedBufferBuilder, ChunkBufferBuilder, ExternalSorter, ExternalSorterBuilder, LimitedBuffer, LimitedBufferBuilder, RmpExternalChunk};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::path::Path;
-use tempfile::{tempdir, Builder};
-use bytesize::MB;
+use std::cmp::Ordering;
 
 /// Common BED fields
 pub trait BEDLike {
@@ -88,37 +83,6 @@ where
     })
 }
 
-pub fn sort_bed<I, B, P, E>(bed_iter: I, tmp_dir: Option<P>) -> impl Iterator<Item = Result<B, rmp_serde::decode::Error>>
-where
-    I: Iterator<Item = Result<B, E>>,
-    B: BEDLike + Send + Serialize + DeserializeOwned,
-    E: Error,
-    P: AsRef<Path>,
-{
-    sort_bed_by(bed_iter, BEDLike::compare, tmp_dir)
-}
-
-pub fn sort_bed_by<I, B, F, P, E>(bed_iter: I, cmp: F, tmp_dir: Option<P>) -> impl Iterator<Item = Result<B, rmp_serde::decode::Error>>
-where
-    I: Iterator<Item = Result<B, E>>,
-    B: BEDLike + Send + Serialize + DeserializeOwned,
-    E: Error,
-    F: Fn(&B, &B) -> Ordering + Send + Sync + Copy, 
-    P: AsRef<Path>,
-{
-    let tmp = if let Some(dir) = tmp_dir {
-        Builder::new().tempdir_in(dir)
-    } else {
-        tempdir()
-    }.expect("failed to create tmperorary directory");
-    let sorter: ExternalSorter<B, E, LimitedBufferBuilder, RmpExternalChunk<B>> = ExternalSorterBuilder::new()
-        .with_tmp_dir(tmp.as_ref())
-        .with_buffer(LimitedBufferBuilder::new(5000000, false))
-        .build()
-        .unwrap();
-    sorter.sort_by(bed_iter, cmp).unwrap()
-}
-
 pub struct MergeBed<I, B, F> {
     sorted_bed_iter: I,
     merger: F,
@@ -180,18 +144,6 @@ where
     MergeBed { sorted_bed_iter, merger, accum: None }
 }
 
-pub fn merge_bed_with<I, B, O, F, P, E>(bed_iter: I, merger: F, tmp_dir: Option<P>
-    ) -> MergeBed<impl Iterator<Item = B>, B, F>
-where
-    I: Iterator<Item = Result<B, E>>,
-    B: BEDLike + Send + Serialize + DeserializeOwned,
-    E: Error,
-    F: Fn(Vec<B>) -> O,
-    P: AsRef<Path>,
-{
-    merge_sorted_bed_with(sort_bed(bed_iter, tmp_dir).map(|x| x.unwrap()), merger)
-}
-
 pub fn merge_sorted_bed<I, B>(sorted_bed_iter: I) -> MergeBed<I, B, impl Fn(Vec<B>) -> GenomicRange>
 where
     I: Iterator<Item = B>,
@@ -205,26 +157,29 @@ where
     MergeBed { sorted_bed_iter, merger, accum: None }
 }
 
-pub fn merge_bed<I, B, P, E>(
-    bed_iter: I, tmp_dir: Option<P>,
-) -> MergeBed<impl Iterator<Item = B>, B, impl Fn(Vec<B>) -> GenomicRange>
-where
-    I: Iterator<Item = Result<B, E>>,
-    B: BEDLike + Send + Serialize + DeserializeOwned,
-    E: Error,
-    P: AsRef<Path>,
-{
-    merge_sorted_bed(sort_bed(bed_iter, tmp_dir).map(|x| x.unwrap()))
-}
-
-
 #[cfg(test)]
 mod bed_tests {
+    use crate::extsort::ExternalSorterBuilder;
+    use rand::Rng;
     use super::*;
+
+    fn rand_bed(n: usize) -> Vec<GenomicRange> {
+        let mut rng = rand::thread_rng();
+        let mut result = Vec::with_capacity(n);
+        for _ in 0..n {
+            let bed = GenomicRange::new(
+                format!("chr{}", rng.gen_range(1..20)),
+                rng.gen_range(0..10000),
+                rng.gen_range(1000000..2000000),
+            );
+            result.push(bed);
+        }
+        result
+    }
 
     #[test]
     fn test_sort() {
-        let mut data = vec![
+        let data1 = vec![
             GenomicRange::new("chr1", 1020, 1230),
             GenomicRange::new("chr1", 0, 500),
             GenomicRange::new("chr2", 500, 1000),
@@ -232,9 +187,19 @@ mod bed_tests {
             GenomicRange::new("chr1", 1000, 1230),
             GenomicRange::new("chr1", 1000, 1230),
         ];
-        let sorted: Result<Vec<_>, _> = sort_bed(data.clone().into_iter().map(|x| std::io::Result::Ok(x)), None::<&str>).collect();
-        data.sort();
-        assert_eq!(data, sorted.unwrap());
+        let data2 = rand_bed(100000);
+
+        [data1, data2].into_iter().for_each(|mut data| {
+            let sorted = ExternalSorterBuilder::new()
+                .num_threads(2)
+                .with_chunk_size(10000)
+                .build()
+                .unwrap()
+                .sort(data.clone().into_iter().map(|x| std::io::Result::Ok(x))).unwrap()
+                .collect::<Result<Vec<_>, _>>().unwrap();
+            data.sort();
+            assert_eq!(data, sorted);
+        })
     }
 
     #[test]
@@ -295,6 +260,5 @@ mod bed_tests {
             (2000, 2200),
         ].into_iter().map(|(a,b)| GenomicRange::new("chr1", a, b)).collect();
         assert_eq!(merge_sorted_bed(input.clone().map(|x| x.unwrap())).collect::<Vec<_>>(), expect);
-        assert_eq!(merge_bed(input.rev(), None::<&str>).collect::<Vec<_>>(), expect);
     }
 }
