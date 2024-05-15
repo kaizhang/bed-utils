@@ -186,7 +186,7 @@ impl ExternalSorter {
         F: Fn(&T, &T) -> Ordering + Sync + Send,
     {
         self.thread_pool.install(|| {
-            buffer.par_sort_by(compare);
+            buffer.par_sort_unstable_by(compare);
         });
 
         let external_chunk =
