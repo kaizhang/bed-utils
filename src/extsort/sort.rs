@@ -132,7 +132,7 @@ impl ExternalSorter {
     ///
     /// # Arguments
     /// * `input` - Input stream data to be fetched from
-    pub fn sort<I, T>(&self, input: I) -> Result<impl Iterator<Item = Result<T, ExternalChunkError>>, SortError>
+    pub fn sort<I, T>(&self, input: I) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
     where
         T: Serialize + DeserializeOwned + Send + Ord,
         I: IntoIterator<Item = T>,
@@ -141,7 +141,7 @@ impl ExternalSorter {
     }
 
     /// Sorts a given iterator with a comparator function, returning a new iterator with items
-    pub fn sort_by<I, T, F>(&self, input: I, cmp: F) -> Result<impl Iterator<Item = Result<T, ExternalChunkError>>, SortError>
+    pub fn sort_by<I, T, F>(&self, input: I, cmp: F) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
     where
         T: Serialize + DeserializeOwned + Send,
         I: IntoIterator<Item = T>,
