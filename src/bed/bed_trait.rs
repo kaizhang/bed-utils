@@ -195,14 +195,14 @@ mod bed_tests {
                 .with_chunk_size(10000)
                 .build()
                 .unwrap()
-                .sort(data.clone().into_iter().map(|x| std::io::Result::Ok(x))).unwrap()
+                .sort(data.clone().into_iter()).unwrap()
                 .collect::<Result<Vec<_>, _>>().unwrap();
             let sorted2 = ExternalSorterBuilder::new()
                 .with_chunk_size(10000)
                 .with_compression(4)
                 .build()
                 .unwrap()
-                .sort(data.clone().into_iter().map(|x| std::io::Result::Ok(x))).unwrap()
+                .sort(data.clone().into_iter()).unwrap()
                 .collect::<Result<Vec<_>, _>>().unwrap();
             data.sort();
             assert_eq!(data, sorted1);

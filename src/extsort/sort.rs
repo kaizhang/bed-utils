@@ -15,7 +15,7 @@ use std::{
 
 /// Sorting error.
 #[derive(Debug)]
-pub enum SortError<I: Error> {
+pub enum SortError {
     /// Temporary directory or file creation error.
     TempDir(io::Error),
     /// Workers thread pool initialization error.
@@ -26,13 +26,9 @@ pub enum SortError<I: Error> {
     SerializationError(bincode::Error),
     /// Data deserialization error.
     DeserializationError(bincode::Error),
-    /// Input data stream error
-    InputError(I),
 }
 
-impl<I> Error for SortError<I>
-where
-    I: Error + 'static,
+impl Error for SortError
 {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(match &self {
@@ -41,12 +37,11 @@ where
             SortError::IO(err) => err,
             SortError::SerializationError(err) => err,
             SortError::DeserializationError(err) => err,
-            SortError::InputError(err) => err,
         })
     }
 }
 
-impl<I: Error> Display for SortError<I> {
+impl Display for SortError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             SortError::TempDir(err) => write!(f, "temporary directory or file not created: {}", err),
@@ -54,7 +49,6 @@ impl<I: Error> Display for SortError<I> {
             SortError::IO(err) => write!(f, "I/O operation failed: {}", err),
             SortError::SerializationError(err) => write!(f, "data serialization error: {}", err),
             SortError::DeserializationError(err) => write!(f, "data deserialization error: {}", err),
-            SortError::InputError(err) => write!(f, "input data stream error: {}", err),
         }
     }
 }
@@ -138,34 +132,28 @@ impl ExternalSorter {
     ///
     /// # Arguments
     /// * `input` - Input stream data to be fetched from
-    pub fn sort<I, T, E>(&self, input: I) -> Result<
-        BinaryHeapMerger<T, ExternalChunkError, impl Fn(&T, &T) -> Ordering + Copy, ExternalChunk<T>>, SortError<E>
-    >
+    pub fn sort<I, T>(&self, input: I) -> Result<impl Iterator<Item = Result<T, ExternalChunkError>>, SortError>
     where
         T: Serialize + DeserializeOwned + Send + Ord,
-        I: IntoIterator<Item = Result<T, E>>,
-        E: Error,
+        I: IntoIterator<Item = T>,
     {
         self.sort_by(input, T::cmp)
     }
 
     /// Sorts a given iterator with a comparator function, returning a new iterator with items
-    pub fn sort_by<I, T, E, F>(&self, input: I, cmp: F) -> Result<BinaryHeapMerger<T, ExternalChunkError, F, ExternalChunk<T>>, SortError<E>>
+    pub fn sort_by<I, T, F>(&self, input: I, cmp: F) -> Result<impl Iterator<Item = Result<T, ExternalChunkError>>, SortError>
     where
         T: Serialize + DeserializeOwned + Send,
-        I: IntoIterator<Item = Result<T, E>>,
-        E: Error,
+        I: IntoIterator<Item = T>,
         F: Fn(&T, &T) -> Ordering + Sync + Send + Copy,
     {
         let mut chunk_buf = Vec::with_capacity(self.chunk_size);
         let mut external_chunks = Vec::new();
+        let mut num_items = 0;
 
         for item in input.into_iter() {
-            match item {
-                Ok(item) => chunk_buf.push(item),
-                Err(err) => return Err(SortError::InputError(err)),
-            }
-
+            num_items += 1;
+            chunk_buf.push(item);
             if chunk_buf.len() >= self.chunk_size {
                 external_chunks.push(self.create_chunk(chunk_buf, cmp)?);
                 chunk_buf = Vec::with_capacity(self.chunk_size);
@@ -176,13 +164,12 @@ impl ExternalSorter {
             external_chunks.push(self.create_chunk(chunk_buf, cmp)?);
         }
 
-        return Ok(BinaryHeapMerger::new(external_chunks, cmp));
+        return Ok(BinaryHeapMerger::new(num_items, external_chunks, cmp));
     }
 
-    fn create_chunk<T, F, E>(&self, mut buffer: Vec<T>, compare: F) -> Result<ExternalChunk<T>, SortError<E>>
+    fn create_chunk<T, F>(&self, mut buffer: Vec<T>, compare: F) -> Result<ExternalChunk<T>, SortError>
     where
         T: Serialize + DeserializeOwned + Send,
-        E: Error,
         F: Fn(&T, &T) -> Ordering + Sync + Send,
     {
         self.thread_pool.install(|| {
@@ -221,7 +208,6 @@ fn _init_thread_pool(
 
 #[cfg(test)]
 mod test {
-    use std::io;
     use std::path::Path;
 
     use rand::seq::SliceRandom;
@@ -235,7 +221,7 @@ mod test {
     fn test_external_sorter(#[case] reversed: bool) {
         let input_sorted = 0..100;
 
-        let mut input: Vec<Result<i32, io::Error>> = Vec::from_iter(input_sorted.clone().map(|item| Ok(item)));
+        let mut input: Vec<i32> = Vec::from_iter(input_sorted.clone());
         input.shuffle(&mut rand::thread_rng());
 
         let sorter: ExternalSorter = ExternalSorterBuilder::new()

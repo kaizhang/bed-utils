@@ -21,13 +21,14 @@ where
         result
     }
 
-    let input = peaks.map(move |r| r.map(|mut x| {
+    let input = peaks.map(move |r| {
+        let mut x = r.unwrap();
         let summit = x.start() + x.peak;
         x.start = summit.saturating_sub(half_window_size);
         x.end = summit + half_window_size + 1;
         x.peak = summit - x.start;
         x
-    }));
+    });
     let input = ExternalSorterBuilder::new().build().unwrap().sort_by(input, BEDLike::compare).unwrap();
     merge_sorted_bed_with(
         input.map(|x| x.unwrap()),

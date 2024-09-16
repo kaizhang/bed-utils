@@ -10,7 +10,7 @@ fn main() -> io::Result<()> {
         .with_chunk_size(5000000)
         .with_tmp_dir("./")
         .build().unwrap()
-        .sort_by(input.records::<BED<5>>(), BEDLike::compare).unwrap()
+        .sort_by(input.records::<BED<5>>().map(|x| x.unwrap()), BEDLike::compare).unwrap()
         .for_each(|x| println!("{}", x.unwrap()));
 
     Ok(())

@@ -64,6 +64,7 @@ where
     C: IntoIterator<Item = Result<T, E>>,
 {
     // binary heap is max-heap by default so we reverse it to convert it to min-heap
+    num_items: usize,
     items: BinaryHeap<(std::cmp::Reverse<OrderedWrapper<T, F>>, usize)>,
     chunks: Vec<C::IntoIter>,
     initiated: bool,
@@ -81,7 +82,7 @@ where
     ///
     /// # Arguments
     /// * `chunks` - Chunks to be merged in a single sorted one
-    pub fn new<I>(chunks: I, compare: F) -> Self
+    pub fn new<I>(num_items: usize, chunks: I, compare: F) -> Self
     where
         I: IntoIterator<Item = C>,
     {
@@ -89,6 +90,7 @@ where
         let items = BinaryHeap::with_capacity(chunks.len());
 
         return BinaryHeapMerger {
+            num_items,
             chunks,
             items,
             compare,
@@ -132,6 +134,17 @@ where
         }
 
         return Some(Ok(result.0.unwrap()));
+    }
+}
+
+impl<T, E, F, C> ExactSizeIterator for BinaryHeapMerger<T, E, F, C>
+where
+    E: Error,
+    F: Fn(&T, &T) -> Ordering + Copy,
+    C: IntoIterator<Item = Result<T, E>>,
+{
+    fn len(&self) -> usize {
+        self.num_items
     }
 }
 
@@ -187,7 +200,8 @@ mod test {
         #[case] chunks: Vec<Vec<Result<i32, io::Error>>>,
         #[case] expected_result: Vec<Result<i32, io::Error>>,
     ) {
-        let merger = BinaryHeapMerger::new(chunks, i32::cmp);
+        let num_items = chunks.iter().map(|c| c.len()).sum();
+        let merger = BinaryHeapMerger::new(num_items, chunks, i32::cmp);
         let actual_result = merger.collect();
         assert!(
             compare_vectors_of_result::<_, io::Error>(&actual_result, &expected_result),
