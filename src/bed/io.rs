@@ -1,8 +1,6 @@
 use crate::bed::BEDLike;
 
-use std::{
-    io::{self, Error, ErrorKind, Read, Write, BufRead, BufReader},
-};
+use std::io::{self, Error, ErrorKind, Read, Write, BufRead, BufReader};
 use std::str::FromStr;
 use std::marker::PhantomData;
 

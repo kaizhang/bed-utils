@@ -1,5 +1,5 @@
 pub mod io;
-pub mod tree;
+pub mod map;
 
 mod bed_trait;
 pub use bed_trait::*;
