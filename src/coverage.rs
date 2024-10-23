@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use num::Integer;
 use num_traits::{Num, NumAssignOps, NumCast};
 
-use crate::bed::{GenomicRange, BEDLike, split_by_len, map::GIntervalIndexSet};
+use crate::bed::{GenomicRange, BEDLike, map::GIntervalIndexSet};
 
 #[derive(Debug, Clone)]
 pub struct Coverage<'a, N> {
@@ -50,9 +50,13 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> Coverage<'a, N> {
         self.coverage[index] += count;
     }
 
-    pub fn regions(&'a self) -> impl Iterator<Item = &GenomicRange> + 'a
+    pub fn regions(&self) -> impl Iterator<Item = &GenomicRange> + '_
     {
         self.intervals.iter()
+    }
+
+    pub fn get_region(&self, index: usize) -> Option<&GenomicRange> {
+        self.intervals.get(index)
     }
 
     pub fn get_coverage(&self) -> &Vec<N> { &self.coverage }
@@ -106,9 +110,12 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> SparseCoverage<'a, N> {
         self.coverage.entry(index).and_modify(|x| *x += count).or_insert(count);
     }
 
-    pub fn regions(&'a self) -> impl Iterator<Item = &GenomicRange> + 'a
-    {
+    pub fn regions(&self) -> impl Iterator<Item = &GenomicRange> + '_ {
         self.intervals.iter()
+    }
+
+    pub fn get_region(&self, index: usize) -> Option<&GenomicRange> {
+        self.intervals.get(index)
     }
 
     pub fn get_coverage(&self) -> &BTreeMap<usize, N> { &self.coverage }
@@ -160,10 +167,10 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> BinnedCoverage<'a, N> {
         });
     }
 
-    pub fn regions(&'a self) -> impl Iterator<Item = impl Iterator<Item = GenomicRange>> + 'a
+    pub fn regions(&self) -> impl Iterator<Item = impl Iterator<Item = GenomicRange> + '_> + '_
     {
         self.intervals.iter()
-            .map(|x| split_by_len(x, self.bin_size))
+            .map(|x| x.split_by_len(self.bin_size))
     }
 
     pub fn get_coverage(&self) -> &Vec<Vec<N>> { &self.coverage }
@@ -220,41 +227,68 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> SparseBinnedCoverage<'a, N> {
         });
     }
 
-    pub fn get_regions(&'a self) -> impl Iterator<Item = impl Iterator<Item = GenomicRange>> + 'a
-    {
+    pub fn regions(&self) -> impl Iterator<Item = impl Iterator<Item = GenomicRange> + '_> + '_ {
         self.intervals.iter()
-            .map(|x| split_by_len(x, self.bin_size))
+            .map(|x| x.split_by_len(self.bin_size))
+    }
+
+    pub fn get_chrom(&self, index: usize) -> Option<&str> {
+        match self.accu_size.binary_search(&index) {
+            Ok(j) => {
+                if j < self.len {
+                    Some(self.intervals[j].chrom())
+                } else {
+                    None
+                }
+            },
+            Err(j) => {
+                if j - 1 < self.len {
+                    Some(self.intervals[j-1].chrom())
+                } else {
+                    None
+                }
+            },
+        }
+    }
+
+    pub fn get_region(&self, index: usize) -> Option<GenomicRange> {
+        let region = match self.accu_size.binary_search(&index) {
+            Ok(j) => {
+                if j < self.len {
+                    let site = &self.intervals[j];
+                    let chr = site.chrom();
+                    let start = site.start();
+                    let end = (start + self.bin_size).min(site.end());
+                    Some(GenomicRange::new(chr, start, end))
+                } else {
+                    None
+                }
+            },
+            Err(j) => {
+                if j - 1 < self.len {
+                    let site = &self.intervals[j-1];
+                    let chr = site.chrom();
+                    let prev = self.accu_size[j-1];
+                    let start = site.start() + ((index - prev) as u64) * self.bin_size;
+                    let end = (start + self.bin_size).min(site.end());
+                    Some(GenomicRange::new(chr, start, end))
+                } else {
+                    None
+                }
+            }
+        };
+        region
     }
 
     pub fn get_coverage(&self) -> &BTreeMap<usize, N> { &self.coverage }
+
+    //pub fn get_smoothed_coverage(&self) -> impl Iterator<Item = (usize, N)> {
+    //}
 
     pub fn get_coverage_as_vec(&self) -> Vec<N> {
         let mut coverage = vec![N::zero(); self.len];
         self.coverage.iter().for_each(|(idx, v)| coverage[*idx] = *v);
         coverage
-    }
-
-    pub fn get_region_coverage(&'a self) -> impl Iterator<Item = (GenomicRange, N)> + 'a {
-        self.get_coverage().iter().map(|(i, v)| {
-            let region = match self.accu_size.binary_search(&i) {
-                Ok(j) => {
-                    let site = &self.intervals[j];
-                    let chr = site.chrom();
-                    let start = site.start();
-                    let end = (start + self.bin_size).min(site.end());
-                    GenomicRange::new(chr, start, end)
-                },
-                Err(j) => {
-                    let site = &self.intervals[j-1];
-                    let chr = site.chrom();
-                    let prev = self.accu_size[j-1];
-                    let start = site.start() + ((i - prev) as u64) * self.bin_size;
-                    let end = (start + self.bin_size).min(site.end());
-                    GenomicRange::new(chr, start, end)
-                }
-            };
-            (region, *v)
-        })
     }
 }
 
@@ -330,7 +364,7 @@ mod bed_intersect_tests {
             cov.get_coverage().iter().map(|(i, x)| (*i, *x)).collect::<Vec<(usize, u64)>>()
         );
 
-        let expected: Vec<_> = cov.get_regions().flatten().zip(
+        let expected: Vec<_> = cov.regions().flatten().zip(
             cov.get_coverage_as_vec().iter()
         ).flat_map(|(region, x)| if *x == 0 {
             None
@@ -339,7 +373,7 @@ mod bed_intersect_tests {
         }).collect();
         assert_eq!(
             expected,
-            cov.get_region_coverage().collect::<Vec<_>>(),
+            cov.get_coverage().iter().map(|(i, v)| (cov.get_region(*i).unwrap(), *v)).collect::<Vec<_>>(),
         );
     }
 }

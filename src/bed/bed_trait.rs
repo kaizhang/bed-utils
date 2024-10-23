@@ -4,7 +4,6 @@ use std::cmp::Ordering;
 
 /// Common BED fields
 pub trait BEDLike {
-
     /// Return the chromosome name of the record
     fn chrom(&self) -> &str;
 
@@ -66,21 +65,27 @@ pub trait BEDLike {
     fn to_genomic_range(&self) -> GenomicRange {
         GenomicRange::new(self.chrom(), self.start(), self.end())
     }
-}
 
-/// Split into consecutive records with the specified length. The length of
-/// the last record may be shorter.
-pub fn split_by_len<B>(bed: &B, bin_size: u64) -> impl Iterator<Item = B>
-where
-    B: BEDLike + Clone,
-{
-    let start = bed.start();
-    let end = bed.end();
-    let mut bed_ = (*bed).clone();
-    (start .. end).step_by(bin_size as usize).map(move |x| {
-        bed_.set_start(x).set_end((x + bin_size).min(end));
-        bed_.clone()
-    })
+    /// Split into consecutive records with the specified length. The length of
+    /// the last record may be shorter.
+    fn split_by_len(&self, bin_size: u64) -> impl Iterator<Item = GenomicRange> {
+        let start = self.start();
+        let end = self.end();
+        (start .. end).step_by(bin_size as usize).map(move |x| {
+            GenomicRange::new(self.chrom(), x, (x + bin_size).min(end))
+        })
+    }
+
+    /// Split into consecutive records with the specified length starting from the end.
+    /// The result is in reverse order compared to `split_by_len`. The length of the last
+    /// record may be shorter.
+    fn rsplit_by_len(&self, bin_size: u64) -> impl Iterator<Item = GenomicRange> {
+        let start = self.start();
+        let end = self.end();
+        (start+1 ..=end).rev().step_by(bin_size as usize).map(move |x| {
+            GenomicRange::new(self.chrom(), x.saturating_sub(bin_size).max(start), x)
+        })
+    }
 }
 
 pub struct MergeBed<I, B, F> {
@@ -160,6 +165,7 @@ where
 #[cfg(test)]
 mod bed_tests {
     use crate::extsort::ExternalSorterBuilder;
+    use itertools::Itertools;
     use rand::Rng;
     use super::*;
 
@@ -212,13 +218,30 @@ mod bed_tests {
 
     #[test]
     fn test_split() {
-        let beds: Vec<GenomicRange> = split_by_len(&GenomicRange::new("chr1", 0, 1230), 500).collect();
-        let expected = vec![
-            GenomicRange::new("chr1", 0, 500),
-            GenomicRange::new("chr1", 500, 1000),
-            GenomicRange::new("chr1", 1000, 1230),
-        ];
-        assert_eq!(beds, expected);
+        assert_eq!(
+            GenomicRange::new("chr1", 0, 1230).split_by_len(500).collect::<Vec<_>>(),
+            vec![
+                GenomicRange::new("chr1", 0, 500),
+                GenomicRange::new("chr1", 500, 1000),
+                GenomicRange::new("chr1", 1000, 1230),
+            ],
+        );
+        assert_eq!(
+            GenomicRange::new("chr1", 0, 1230).rsplit_by_len(500).collect::<Vec<_>>(),
+            vec![
+                GenomicRange::new("chr1", 730, 1230),
+                GenomicRange::new("chr1", 230, 730),
+                GenomicRange::new("chr1", 0, 230),
+            ],
+        );
+        assert_eq!(
+            GenomicRange::new("chr1", 500, 2500).split_by_len(500).collect::<Vec<_>>(),
+            GenomicRange::new("chr1", 500, 2500).rsplit_by_len(500).sorted().collect::<Vec<_>>(),
+        );
+        assert_eq!(
+            GenomicRange::new("chr1", 500, 2500).split_by_len(1).collect::<Vec<_>>(),
+            GenomicRange::new("chr1", 500, 2500).rsplit_by_len(1).sorted().collect::<Vec<_>>(),
+        );
     }
 
     #[test]
