@@ -282,9 +282,6 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> SparseBinnedCoverage<'a, N> {
 
     pub fn get_coverage(&self) -> &BTreeMap<usize, N> { &self.coverage }
 
-    //pub fn get_smoothed_coverage(&self) -> impl Iterator<Item = (usize, N)> {
-    //}
-
     pub fn get_coverage_as_vec(&self) -> Vec<N> {
         let mut coverage = vec![N::zero(); self.len];
         self.coverage.iter().for_each(|(idx, v)| coverage[*idx] = *v);
@@ -294,7 +291,18 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> SparseBinnedCoverage<'a, N> {
 
 #[cfg(test)]
 mod bed_intersect_tests {
+    use crate::bed::{merge_sorted_bed_with, merge_sorted_bedgraph, BedGraph};
     use super::*;
+
+    use itertools::Itertools;
+    use rand::{thread_rng, Rng};
+
+    fn rand_bedgraph(chr: &str) -> BedGraph<f32> {
+        let mut rng = thread_rng();
+        let n: u64 = rng.gen_range(0..10000);
+        let l: u64 = rng.gen_range(5..50);
+        BedGraph::new(chr, n, n + l, 1.0)
+    }
 
     #[test]
     fn test_coverage() {
@@ -374,6 +382,77 @@ mod bed_intersect_tests {
         assert_eq!(
             expected,
             cov.get_coverage().iter().map(|(i, v)| (cov.get_region(*i).unwrap(), *v)).collect::<Vec<_>>(),
+        );
+    }
+
+    #[test]
+    fn test_sparse_bin_coverage() {
+        fn get_bedgraph(cov: SparseBinnedCoverage<'_, f32>) -> Vec<BedGraph<f32>> {
+            let expected: Vec<_> = cov.regions().flatten().zip(
+                cov.get_coverage_as_vec().iter()
+            ).flat_map(|(region, x)| if *x == 0.0 {
+                None
+            } else {
+                Some(BedGraph::from_bed(&region, *x))
+            }).collect();
+            let chunks = expected.into_iter().chunk_by(|x| x.value);
+            chunks
+                .into_iter()
+                .flat_map(|(_, groups)| {
+                    merge_sorted_bed_with(groups, |beds| {
+                        let mut iter = beds.into_iter();
+                        let mut first = iter.next().unwrap();
+                        if let Some(last) = iter.last() {
+                            first.set_end(last.end());
+                        }
+                        first
+                    })
+                })
+                .collect()
+        }
+
+        fn clip(x: &mut BedGraph<f32>, bin_size: u64) {
+            if x.start() % bin_size != 0 {
+                x.set_start(x.start() - x.start() % bin_size);
+            }
+            if x.end() % bin_size != 0 {
+                x.set_end(x.end() + bin_size - x.end() % bin_size);
+            }
+        }
+
+        fn compare(expected: Vec<BedGraph<f32>>, actual: Vec<BedGraph<f32>>) {
+            let (mis_a, mis_b): (Vec<_>, Vec<_>) = expected.into_iter().zip(actual).flat_map(|(a, b)| {
+                if a != b {
+                    Some((a,b))
+                } else {
+                    None
+                }
+            }).unzip();
+            assert!(mis_a.is_empty(), "Bin_counting: {:?}\n\nMerging: {:?}", &mis_a[..10], &mis_b[..10]);
+        }
+
+        let regions = [
+            GenomicRange::new("chr1", 0, 1000000),
+            ].into_iter().collect();
+        let reads = (0..100000).map(|_| rand_bedgraph("chr1"))
+            .sorted_by(|a, b| a.compare(b))
+            .collect::<Vec<_>>();
+
+        let mut cov = SparseBinnedCoverage::new(&regions, 1);
+        reads.iter().for_each(|x| cov.insert(x, x.value));
+        compare(get_bedgraph(cov), merge_sorted_bedgraph(reads.clone()).collect());
+
+        let mut cov = SparseBinnedCoverage::new(&regions, 71);
+        reads.iter().for_each(|x| cov.insert(x, x.value));
+        compare(
+            get_bedgraph(cov),
+            merge_sorted_bedgraph(
+                reads.iter().map(|x| {
+                    let mut x = x.clone();
+                    clip(&mut x, 71);
+                    x
+                }).collect::<Vec<_>>()
+            ).collect()
         );
     }
 }
