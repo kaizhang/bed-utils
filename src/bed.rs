@@ -201,9 +201,9 @@ impl From<Vec<String>> for OptionalFields {
 /// A NarrowPeak record is a BED6+4 format that is used to store called peaks.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct NarrowPeak {
-    chrom: String,
-    start: u64,
-    end: u64,
+    pub chrom: String,
+    pub start: u64,
+    pub end: u64,
     pub name: Option<String>,
     pub score: Option<Score>,
     pub strand: Option<Strand>,
@@ -293,9 +293,9 @@ impl FromStr for NarrowPeak {
 /// A BroadPeak record is a BED6+4 format that is used to store called peaks.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BroadPeak {
-    chrom: String,
-    start: u64,
-    end: u64,
+    pub chrom: String,
+    pub start: u64,
+    pub end: u64,
     pub name: Option<String>,
     pub score: Option<Score>,
     pub strand: Option<Strand>,
