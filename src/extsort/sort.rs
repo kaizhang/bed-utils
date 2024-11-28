@@ -93,6 +93,8 @@ impl ExternalSorterBuilder {
         self
     }
 
+    /// Sets the compression level (1-16) to be used when writing sorted segments to
+    /// disk.
     pub fn with_compression(mut self, level: u32) -> Self {
         self.compression = Some(level);
         self

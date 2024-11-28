@@ -198,18 +198,18 @@ impl From<Vec<String>> for OptionalFields {
 }
 
 
-/// A standard BED record.
+/// A NarrowPeak record is a BED6+4 format that is used to store called peaks.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct NarrowPeak {
-    pub chrom: String,
-    pub start: u64,
-    pub end: u64,
+    chrom: String,
+    start: u64,
+    end: u64,
     pub name: Option<String>,
     pub score: Option<Score>,
     pub strand: Option<Strand>,
     pub signal_value: f64,
-    pub p_value: f64, 
-    pub q_value: f64, 
+    pub p_value: Option<f64>, 
+    pub q_value: Option<f64>, 
     pub peak: u64, 
 }
 
@@ -261,8 +261,8 @@ impl fmt::Display for NarrowPeak {
             f,
             "{}{}{}{}{}{}{}{}",
             DELIMITER, self.signal_value,
-            DELIMITER, self.p_value,
-            DELIMITER, self.q_value,
+            DELIMITER, self.p_value.unwrap_or(-1.0),
+            DELIMITER, self.q_value.unwrap_or(-1.0),
             DELIMITER, self.peak,
         )?;
 
@@ -283,9 +283,98 @@ impl FromStr for NarrowPeak {
             score: parse_score(&mut fields)?,
             strand: parse_strand(&mut fields)?,
             signal_value: fields.next().unwrap().parse().unwrap(),
-            p_value: fields.next().unwrap().parse().unwrap(),
-            q_value: fields.next().unwrap().parse().unwrap(),
+            p_value: parse_pvalue(&mut fields).unwrap(),
+            q_value: parse_pvalue(&mut fields).unwrap(),
             peak: fields.next().unwrap().parse().unwrap(),
+        })
+    }
+}
+
+/// A BroadPeak record is a BED6+4 format that is used to store called peaks.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct BroadPeak {
+    chrom: String,
+    start: u64,
+    end: u64,
+    pub name: Option<String>,
+    pub score: Option<Score>,
+    pub strand: Option<Strand>,
+    pub signal_value: f64,
+    pub p_value: Option<f64>, 
+    pub q_value: Option<f64>, 
+}
+
+impl BEDLike for BroadPeak {
+    fn chrom(&self) -> &str { &self.chrom }
+    fn set_chrom(&mut self, chrom: &str) -> &mut Self {
+        self.chrom = chrom.to_string();
+        self
+    }
+    fn start(&self) -> u64 { self.start }
+    fn set_start(&mut self, start: u64) -> &mut Self {
+        self.start = start;
+        self
+    }
+    fn end(&self) -> u64 { self.end }
+    fn set_end(&mut self, end: u64) -> &mut Self {
+        self.end = end;
+        self
+    }
+    fn name(&self) -> Option<&str> { self.name.as_deref() }
+    fn score(&self) -> Option<Score> { self.score }
+    fn strand(&self) -> Option<Strand> { self.strand }
+}
+
+impl fmt::Display for BroadPeak {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}{}{}{}{}{}{}",
+            self.chrom(),
+            DELIMITER, self.start(),
+            DELIMITER, self.end(),
+            DELIMITER, self.name().unwrap_or(MISSING_ITEM),
+        )?;
+
+        f.write_char(DELIMITER)?;
+        if let Some(x) = self.score() {
+            write!(f, "{}", x)?;
+        } else {
+            f.write_str(MISSING_ITEM)?;
+        }
+        f.write_char(DELIMITER)?;
+        if let Some(x) = self.strand() {
+            write!(f, "{}", x)?;
+        } else {
+            f.write_str(MISSING_ITEM)?;
+        }
+        write!(
+            f,
+            "{}{}{}{}{}{}",
+            DELIMITER, self.signal_value,
+            DELIMITER, self.p_value.unwrap_or(-1.0),
+            DELIMITER, self.q_value.unwrap_or(-1.0),
+        )?;
+
+        Ok(())
+    }
+}
+
+impl FromStr for BroadPeak {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut fields = s.split(DELIMITER);
+        Ok(Self {
+            chrom: parse_chrom(&mut fields)?.to_string(),
+            start: parse_start(&mut fields)?,
+            end: parse_end(&mut fields)?,
+            name: parse_name(&mut fields)?,
+            score: parse_score(&mut fields)?,
+            strand: parse_strand(&mut fields)?,
+            signal_value: fields.next().unwrap().parse().unwrap(),
+            p_value: parse_pvalue(&mut fields).unwrap(),
+            q_value: parse_pvalue(&mut fields).unwrap(),
         })
     }
 }
@@ -433,6 +522,19 @@ where
         .and_then(|s| match s {
             MISSING_ITEM => Ok(None),
             _ => s.parse().map(Some).map_err(ParseError::InvalidStrand),
+        })
+}
+
+fn parse_pvalue<'a, I>(fields: &mut I) -> Result<Option<f64>, ParseError>
+where
+    I: Iterator<Item = &'a str>,
+{
+    fields
+        .next()
+        .ok_or(ParseError::MissingScore)
+        .and_then(|s| {
+            let p = s.parse().unwrap();
+            if p < 0.0 { Ok(None) } else { Ok(Some(p)) }
         })
 }
 

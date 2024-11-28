@@ -24,9 +24,9 @@ where
     let input = peaks.map(move |r| {
         let mut x = r.unwrap();
         let summit = x.start() + x.peak;
-        x.start = summit.saturating_sub(half_window_size);
-        x.end = summit + half_window_size + 1;
-        x.peak = summit - x.start;
+        x.set_start(summit.saturating_sub(half_window_size));
+        x.set_end(summit + half_window_size + 1);
+        x.peak = summit - x.start();
         x
     });
     let input = ExternalSorterBuilder::new().build().unwrap().sort_by(input, BEDLike::compare).unwrap();
