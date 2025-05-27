@@ -4,18 +4,18 @@ pub mod map;
 mod bed_trait;
 pub use bed_trait::*;
 mod score;
+use bincode::{Decode, Encode};
 pub use score::Score;
 mod strand;
 pub use strand::Strand;
 
 use std::{fmt::{self, Write}, ops::Deref, str::FromStr};
-use serde::{Serialize, Deserialize};
 
 const DELIMITER: char = '\t';
 const MISSING_ITEM : &str = ".";
 
 /// A minimal BED record with only 3 fields.
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Encode, Decode, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct GenomicRange(String, u64, u64);
 
 impl GenomicRange {
@@ -78,7 +78,7 @@ impl fmt::Display for GenomicRange {
 
 
 /// A standard BED record.
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, Eq, PartialEq)]
 pub struct BED<const N: u8> {
     chrom: String,
     start: u64,
@@ -166,7 +166,7 @@ impl<const N: u8> FromStr for BED<N> {
 }
 
 /// Generic BED record optional fields.
-#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, Default, Eq, PartialEq)]
 pub struct OptionalFields(Vec<String>);
 
 impl Deref for OptionalFields {
@@ -199,7 +199,7 @@ impl From<Vec<String>> for OptionalFields {
 
 
 /// A NarrowPeak record is a BED6+4 format that is used to store called peaks.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct NarrowPeak {
     pub chrom: String,
     pub start: u64,
@@ -291,7 +291,7 @@ impl FromStr for NarrowPeak {
 }
 
 /// A BroadPeak record is a BED6+4 format that is used to store called peaks.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BroadPeak {
     pub chrom: String,
     pub start: u64,
@@ -381,7 +381,7 @@ impl FromStr for BroadPeak {
 
 /// The bedGraph format allows display of continuous-valued data in track format.
 /// This display type is useful for probability scores and transcriptome data. 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BedGraph<V> {
     pub chrom: String,
     pub start: u64,

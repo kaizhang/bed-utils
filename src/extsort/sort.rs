@@ -2,12 +2,10 @@ use crate::extsort::merger::BinaryHeapMerger;
 use crate::extsort::chunk::{ExternalChunk, ExternalChunkError};
 
 use rayon::prelude::*;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 use std::{fmt::{self, Display}, io};
 use rayon;
 use std::error::Error;
-use bincode;
+use bincode::{self, Decode, Encode};
 use std::{
     cmp::Ordering,
     path::{Path, PathBuf},
@@ -23,9 +21,9 @@ pub enum SortError {
     /// Common I/O error.
     IO(io::Error),
     /// Data serialization error.
-    SerializationError(bincode::Error),
+    SerializationError(bincode::error::EncodeError),
     /// Data deserialization error.
-    DeserializationError(bincode::Error),
+    DeserializationError(bincode::error::DecodeError),
 }
 
 impl Error for SortError
@@ -136,7 +134,7 @@ impl ExternalSorter {
     /// * `input` - Input stream data to be fetched from
     pub fn sort<I, T>(&self, input: I) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
     where
-        T: Serialize + DeserializeOwned + Send + Ord,
+        T: Encode + Decode<()> + Send + Ord,
         I: IntoIterator<Item = T>,
     {
         self.sort_by(input, T::cmp)
@@ -145,7 +143,7 @@ impl ExternalSorter {
     /// Sorts a given iterator with a comparator function, returning a new iterator with items
     pub fn sort_by<I, T, F>(&self, input: I, cmp: F) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
     where
-        T: Serialize + DeserializeOwned + Send,
+        T: Encode + Decode<()> + Send,
         I: IntoIterator<Item = T>,
         F: Fn(&T, &T) -> Ordering + Sync + Send + Copy,
     {
@@ -171,7 +169,7 @@ impl ExternalSorter {
 
     fn create_chunk<T, F>(&self, mut buffer: Vec<T>, compare: F) -> Result<ExternalChunk<T>, SortError>
     where
-        T: Serialize + DeserializeOwned + Send,
+        T: Encode + Send,
         F: Fn(&T, &T) -> Ordering + Sync + Send,
     {
         self.thread_pool.install(|| {
@@ -181,7 +179,8 @@ impl ExternalSorter {
         let external_chunk =
             ExternalChunk::new(&self.tmp_dir, buffer, self.compression).map_err(|err| match err {
                 ExternalChunkError::IO(err) => SortError::IO(err),
-                ExternalChunkError::SerializationError(err) => SortError::SerializationError(err),
+                ExternalChunkError::EncodeError(err) => SortError::SerializationError(err),
+                ExternalChunkError::DecodeError(err) => SortError::DeserializationError(err),
             })?;
 
         return Ok(external_chunk);

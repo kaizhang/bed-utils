@@ -49,7 +49,7 @@
 //! # Examples
 //!
 //! ```rust
-//!    use rust_lapper::{Interval, Lapper};
+//!    use bed_utils::intervaltree::{Interval, Lapper};
 //!    use std::cmp;
 //!    type Iv = Interval<usize, u32>;
 //!
@@ -75,14 +75,14 @@
 //!    }
 //!    assert_eq!(sim, 4);
 //! ```
+use bincode::{Decode, Encode};
 use num_traits::{identities::{one, zero}, PrimInt};
 use std::cmp::Ordering::{self};
 use std::collections::VecDeque;
-use serde::{Deserialize, Serialize};
 
 /// Represent a range from [start, stop)
 /// Inclusive start, exclusive of stop
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Encode, Decode, Debug, Clone)]
 pub struct Interval<I, T>
 {
     pub start: I,
@@ -92,7 +92,7 @@ pub struct Interval<I, T>
 
 /// Primary object of the library. The public intervals holds all the intervals and can be used for
 /// iterating / pulling values out of the tree.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Encode, Decode, Debug, Clone)]
 pub struct Lapper<I, T>
 {
     /// List of intervals
@@ -161,7 +161,7 @@ impl<I: PrimInt, T> Lapper<I, T>
     /// Create a new instance of Lapper by passing in a vector of Intervals. This vector will
     /// immediately be sorted by start order.
     /// ```
-    /// use rust_lapper::{Lapper, Interval};
+    /// use bed_utils::intervaltree::{Lapper, Interval};
     /// let data = (0..20).step_by(5)
     ///                   .map(|x| Interval{start: x, stop: x + 10, val: true})
     ///                   .collect::<Vec<Interval<usize, bool>>>();
@@ -199,7 +199,7 @@ impl<I: PrimInt, T> Lapper<I, T>
     /// SIDE EFFECTS: This clears cov() and overlaps_merged
     /// meaning that those will have to be recomputed after a insert
     /// ```
-    /// use rust_lapper::{Lapper, Interval};
+    /// use bed_utils::intervaltree::{Lapper, Interval};
     /// let data : Vec<Interval<usize, usize>>= vec!{
     ///     Interval{start:0,  stop:5,  val:1},
     ///     Interval{start:6,  stop:10, val:2},
@@ -232,7 +232,7 @@ impl<I: PrimInt, T> Lapper<I, T>
 
     /// Get the number over intervals in Lapper
     /// ```
-    /// use rust_lapper::{Lapper, Interval};
+    /// use bed_utils::intervaltree::{Lapper, Interval};
     /// let data = (0..20).step_by(5)
     ///                   .map(|x| Interval{start: x, stop: x + 10, val: true})
     ///                   .collect::<Vec<Interval<usize, bool>>>();
@@ -246,7 +246,7 @@ impl<I: PrimInt, T> Lapper<I, T>
 
     /// Check if lapper is empty
     /// ```
-    /// use rust_lapper::{Lapper, Interval};
+    /// use bed_utils::intervaltree::{Lapper, Interval};
     /// let data: Vec<Interval<usize, bool>> = vec![];
     /// let lapper = Lapper::new(data);
     /// assert_eq!(lapper.is_empty(), true);
@@ -259,7 +259,7 @@ impl<I: PrimInt, T> Lapper<I, T>
     /// Get the number of positions covered by the intervals in Lapper. This provides immutable
     /// access if it has already been set, or on the fly calculation.
     /// ```
-    /// use rust_lapper::{Lapper, Interval};
+    /// use bed_utils::intervaltree::{Lapper, Interval};
     /// let data = (0..20).step_by(5)
     ///                   .map(|x| Interval{start: x, stop: x + 10, val: true})
     ///                   .collect::<Vec<Interval<usize, bool>>>();
@@ -375,7 +375,7 @@ impl<I: PrimInt, T> Lapper<I, T>
     /// Intersect: The number of positions where both lappers intersect. Note that a position only
     /// counts one time, multiple Intervals covering the same position don't add up.
     /// ``` rust
-    /// use rust_lapper::{Lapper, Interval};
+    /// use bed_utils::intervaltree::{Lapper, Interval};
     /// type Iv = Interval<u32, u32>;
     /// let data1: Vec<Iv> = vec![
     ///     Iv{start: 70, stop: 120, val: 0}, // max_len = 50
@@ -468,7 +468,7 @@ impl<I: PrimInt, T> Lapper<I, T>
     ///
     /// # Examples
     /// ```
-    /// use rust_lapper::{Lapper, Interval};
+    /// use bed_utils::intervaltree::{Lapper, Interval};
     /// let data = (0..20).step_by(5)
     ///                   .map(|x| Interval{start: x, stop: x + 10, val: true})
     ///                   .collect::<Vec<Interval<usize, bool>>>();
@@ -506,7 +506,7 @@ impl<I: PrimInt, T> Lapper<I, T>
     /// find all the excluded elements, and then deduces the intersection from there. See
     /// [BITS](https://arxiv.org/pdf/1208.3407.pdf) for more details.
     /// ```
-    /// use rust_lapper::{Lapper, Interval};
+    /// use bed_utils::intervaltree::{Lapper, Interval};
     /// let lapper = Lapper::new((0..100).step_by(5)
     ///                                 .map(|x| Interval{start: x, stop: x+2 , val: true})
     ///                                 .collect::<Vec<Interval<usize, bool>>>());
@@ -536,7 +536,7 @@ impl<I: PrimInt, T> Lapper<I, T>
 
     /// Find all intervals that overlap start .. stop
     /// ```
-    /// use rust_lapper::{Lapper, Interval};
+    /// use bed_utils::intervaltree::{Lapper, Interval};
     /// let lapper = Lapper::new((0..100).step_by(5)
     ///                                 .map(|x| Interval{start: x, stop: x+2 , val: true})
     ///                                 .collect::<Vec<Interval<usize, bool>>>());
@@ -561,7 +561,7 @@ impl<I: PrimInt, T> Lapper<I, T>
     /// be modified and should be reused in the next query. This allows seek to not need to make
     /// the lapper object mutable, and thus use the same lapper accross threads.
     /// ```
-    /// use rust_lapper::{Lapper, Interval};
+    /// use bed_utils::intervaltree::{Lapper, Interval};
     /// let lapper = Lapper::new((0..100).step_by(5)
     ///                                 .map(|x| Interval{start: x, stop: x+2 , val: true})
     ///                                 .collect::<Vec<Interval<usize, bool>>>());
@@ -1335,14 +1335,15 @@ mod tests {
         ];
         let lapper = Lapper::new(data);
 
-        let serialized = bincode::serialize(&lapper).unwrap();
-        let deserialzed: Lapper<usize, u32> = bincode::deserialize(&serialized).unwrap();
+        let config = bincode::config::standard();
+        let ser = bincode::encode_to_vec(&lapper, config).unwrap();
+        let deser: Lapper<usize, u32> = bincode::decode_from_slice(&ser, config).unwrap().0;
 
-        let found = deserialzed.find(28974798, 33141355).collect::<Vec<&Iv>>();
+        let found = deser.find(28974798, 33141355).collect::<Vec<&Iv>>();
         assert_eq!(found, vec![
             &Iv{start:28866309, stop: 33141404	, val: 0},
         ]);
-        assert_eq!(deserialzed.count(28974798, 33141355), 1);
+        assert_eq!(deser.count(28974798, 33141355), 1);
     }
 
 }

@@ -1,15 +1,14 @@
 //! External chunk.
 
+use bincode::{Decode, Encode};
+use lz4::{Decoder, EncoderBuilder};
 use std::error::Error;
 use std::fmt::{self, Display};
-use std::io::{self, BufReader, BufWriter};
 use std::io::prelude::*;
+use std::io::{self, BufReader, BufWriter};
 use std::marker::PhantomData;
-use lz4::{Decoder, EncoderBuilder};
 
-use bincode::Options;
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use serde::Serialize;
 use tempfile;
 
 /// External chunk error
@@ -18,7 +17,8 @@ pub enum ExternalChunkError {
     /// Common I/O error.
     IO(io::Error),
     /// Data serialization error.
-    SerializationError(bincode::Error),
+    EncodeError(bincode::error::EncodeError),
+    DecodeError(bincode::error::DecodeError),
 }
 
 impl From<io::Error> for ExternalChunkError {
@@ -27,9 +27,15 @@ impl From<io::Error> for ExternalChunkError {
     }
 }
 
-impl From<bincode::Error> for ExternalChunkError {
-    fn from(err: bincode::Error) -> Self {
-        ExternalChunkError::SerializationError(err)
+impl From<bincode::error::EncodeError> for ExternalChunkError {
+    fn from(err: bincode::error::EncodeError) -> Self {
+        ExternalChunkError::EncodeError(err)
+    }
+}
+
+impl From<bincode::error::DecodeError> for ExternalChunkError {
+    fn from(err: bincode::error::DecodeError) -> Self {
+        ExternalChunkError::DecodeError(err)
     }
 }
 
@@ -39,7 +45,8 @@ impl Display for ExternalChunkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ExternalChunkError::IO(err) => write!(f, "{}", err),
-            ExternalChunkError::SerializationError(err) => write!(f, "{}", err),
+            ExternalChunkError::EncodeError(err) => write!(f, "{}", err),
+            ExternalChunkError::DecodeError(err) => write!(f, "{}", err),
         }
     }
 }
@@ -52,7 +59,7 @@ pub struct ExternalChunk<T> {
 
 impl<T> ExternalChunk<T>
 where
-    T: serde::ser::Serialize + serde::de::DeserializeOwned,
+    T: Encode,
 {
     /// Builds an instance of an external chunk creating file and dumping the items to it.
     ///
@@ -68,7 +75,9 @@ where
         let mut tmp_file = tempfile::tempfile_in(dir)?;
 
         if let Some(level) = compression {
-            let mut writer = EncoderBuilder::new().level(level).build(tmp_file.try_clone()?)?;
+            let mut writer = EncoderBuilder::new()
+                .level(level)
+                .build(tmp_file.try_clone()?)?;
             dump(&mut writer, items)?;
             writer.finish().1?;
         } else {
@@ -80,31 +89,37 @@ where
         tmp_file.rewind()?;
         if let Some(_) = compression {
             let reader = Box::new(Decoder::new(tmp_file)?);
-            Ok(Self { reader, item_type: PhantomData })
+            Ok(Self {
+                reader,
+                item_type: PhantomData,
+            })
         } else {
             let reader = Box::new(BufReader::new(tmp_file));
-            Ok(Self { reader, item_type: PhantomData })
+            Ok(Self {
+                reader,
+                item_type: PhantomData,
+            })
         }
     }
 }
 
-fn dump<T: Serialize, R: Write>(
+fn dump<T: Encode, R: Write>(
     chunk_writer: &mut R,
     items: impl IntoIterator<Item = T>,
 ) -> Result<(), ExternalChunkError> {
-    let ser = bincode::DefaultOptions::new();
+    let config = bincode::config::standard();
     for item in items.into_iter() {
-        let result = ser.serialize(&item).map_err(ExternalChunkError::from)?;
-        let size = result.len() as u64;
-        chunk_writer.write_u64::<byteorder::LittleEndian>(size)?;
-        chunk_writer.write(result.as_slice())?;
+        let result = bincode::encode_to_vec(&item, config)
+            .map_err(ExternalChunkError::from)?;
+        chunk_writer.write_u64::<byteorder::LittleEndian>(result.len() as u64)?;
+        chunk_writer.write(&result)?;
     }
     return Ok(());
 }
 
 impl<T> Iterator for ExternalChunk<T>
 where
-    T: serde::ser::Serialize + serde::de::DeserializeOwned,
+    T: Decode<()>,
 {
     type Item = Result<T, ExternalChunkError>;
 
@@ -114,13 +129,30 @@ where
                 std::io::ErrorKind::UnexpectedEof => None,
                 _ => Some(Err(ExternalChunkError::IO(err))),
             },
-            Ok(size) => {
-                let mut buf = vec![0u8; size as usize];
-                if let Err(err) =  self.reader.read_exact(buf.as_mut()) {
+            Ok(length) => {
+                let config = bincode::config::standard();
+                let mut buf = vec![0u8; length as usize];
+                if let Err(err) = self.reader.read_exact(buf.as_mut()) {
                     return Some(Err(ExternalChunkError::IO(err)));
                 } else {
-                    let ser = bincode::DefaultOptions::new();
-                    Some(ser.deserialize(&buf).map_err(ExternalChunkError::from))
+                    match bincode::decode_from_slice(&buf, config) {
+                        Err(err) => Some(Err(ExternalChunkError::from(err))),
+                        Ok((ser, n)) => {
+                            if n != length as usize {
+                                Some(Err(ExternalChunkError::IO(
+                                    io::Error::new(
+                                        io::ErrorKind::InvalidData,
+                                        format!(
+                                            "Expected {} bytes, got {}",
+                                            length, n
+                                        ),
+                                    )
+                                )))
+                            } else {
+                                Some(Ok(ser))
+                            }
+                        }
+                    }
                 }
             }
         }

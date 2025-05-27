@@ -2,10 +2,11 @@
 
 use std::{error, fmt, str::FromStr};
 use std::ops::Deref;
-use serde::{Serialize, Deserialize};
+
+use bincode::{Decode, Encode};
 
 /// A BED record score.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Encode, Decode, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Score(u16);
 
 impl fmt::Display for Score {
