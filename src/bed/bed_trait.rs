@@ -1,9 +1,10 @@
+use bincode::{Decode, Encode};
 use itertools::Itertools;
 use num::Num;
 use num_traits::NumAssignOps;
 
 use super::BedGraph;
-use crate::bed::{GenomicRange, Score, Strand};
+use crate::{bed::{GenomicRange, Score, Strand}, extsort::{ExternalChunkError, ExternalSorterBuilder, SortError}};
 
 use std::{cmp::Ordering, iter::Sum, ops::Neg};
 
@@ -103,13 +104,103 @@ pub trait BEDLike {
     }
 }
 
-pub struct MergeBed<I, B, F> {
+pub trait MergeBed: Iterator {
+    /// Merge sorted BED records. Overlapping records are processed according to the
+    /// function provided.
+    ///
+    /// # Arguments
+    /// * `merger` - A function that takes a vector of BED records and returns an output type.
+    ///
+    /// # Returns
+    /// An iterator that yields the output type produced by the merger function.
+    fn merge_sorted_bed_with<B, O, F>(self, merger: F) -> impl Iterator<Item = O>
+    where
+        Self: Iterator<Item = B> + Sized,
+        B: BEDLike,
+        F: Fn(Vec<B>) -> O,
+    {
+        MergeBedOutput {
+            sorted_bed_iter: self,
+            merger,
+            accum: None,
+        }
+    }
+
+    /// Merge sorted BED records. Overlapping records are concatenated into a single
+    /// record.
+    fn merge_sorted_bed<B>(self) -> impl Iterator<Item = GenomicRange>
+    where
+        Self: Iterator<Item = B> + Sized,
+        B: BEDLike,
+    {
+        self.merge_sorted_bed_with(|x| {
+            GenomicRange::new(
+                x[0].chrom(),
+                x.iter().map(|x| x.start()).min().unwrap(),
+                x.iter().map(|x| x.end()).max().unwrap(),
+            )
+        })
+    }
+
+    fn merge_sorted_bedgraph<V>(self) -> impl Iterator<Item = BedGraph<V>>
+    where
+        Self: Iterator<Item = BedGraph<V>> + Sized,
+        V: Num + NumAssignOps + Sum + Neg<Output = V> + PartialOrd + Copy,
+    {
+        self.merge_sorted_bed_with(|bdgs| {
+            // group by start and end points
+            let point_groups = bdgs
+                .iter()
+                .flat_map(|bedgraph| {
+                    [
+                        (bedgraph.start(), bedgraph.value),
+                        (bedgraph.end(), bedgraph.value.neg()),
+                    ]
+                })
+                .sorted_unstable_by_key(|x| x.0)
+                .chunk_by(|x| (x.0, x.1 < V::zero()));
+            let mut point_groups = point_groups.into_iter();
+
+            let chrom = bdgs[0].chrom();
+            let ((mut prev_pos, _), first_group) = point_groups.next().unwrap();
+            let mut acc_val = first_group.into_iter().map(|x| x.1).sum();
+            let mut prev_bedgraph = BedGraph::new(chrom, prev_pos, prev_pos, acc_val);
+
+            let mut result = point_groups
+                .flat_map(|((pos, _), group)| {
+                    let value_sum = group.into_iter().map(|x| x.1).sum();
+                    let mut bedgraph = None;
+
+                    if prev_pos != pos {
+                        if acc_val == prev_bedgraph.value {
+                            prev_bedgraph.set_end(pos);
+                        } else {
+                            bedgraph = Some(prev_bedgraph.clone());
+                            prev_bedgraph = BedGraph::new(chrom, prev_pos, pos, acc_val);
+                        }
+                    }
+
+                    acc_val += value_sum;
+                    prev_pos = pos;
+                    bedgraph
+                })
+                .collect::<Vec<_>>();
+            result.push(prev_bedgraph);
+            result
+        })
+        .flatten()
+    }
+}
+
+impl<T> MergeBed for T where T: Iterator + ?Sized {}
+
+struct MergeBedOutput<I, B, F> {
     sorted_bed_iter: I,
     merger: F,
     accum: Option<((String, u64, u64), Vec<B>)>,
 }
 
-impl<I, F, B, O> Iterator for MergeBed<I, B, F>
+impl<I, F, B, O> Iterator for MergeBedOutput<I, B, F>
 where
     I: Iterator<Item = B>,
     B: BEDLike,
@@ -160,86 +251,57 @@ where
     }
 }
 
-/// Merge sorted BED records. Overlapping records are processed according to the
-/// function provided.
-pub fn merge_sorted_bed_with<In, I, B, O, F>(sorted_bed_iter: In, merger: F) -> MergeBed<I, B, F>
-where
-    In: IntoIterator<IntoIter = I>,
-    I: Iterator<Item = B>,
-    B: BEDLike,
-    F: Fn(Vec<B>) -> O,
-{
-    MergeBed {
-        sorted_bed_iter: sorted_bed_iter.into_iter(),
-        merger,
-        accum: None,
+#[derive(Debug, Clone)]
+pub struct SortBedOptions {
+    pub num_threads: Option<usize>,
+    pub chunk_size: usize,
+    pub compression: Option<u8>,
+    pub tmp_dir: Option<String>,
+}
+
+impl Default for SortBedOptions {
+    fn default() -> Self {
+        SortBedOptions {
+            num_threads: None,
+            chunk_size: 50000000,
+            compression: Some(1),
+            tmp_dir: None,
+        }
     }
 }
 
-/// Merge sorted BED records. Overlapping records are concatenated into a single
-/// record.
-pub fn merge_sorted_bed<I, B>(sorted_iter: I) -> impl Iterator<Item = GenomicRange>
-where
-    I: IntoIterator<Item = B>,
-    B: BEDLike,
-{
-    merge_sorted_bed_with(sorted_iter, |x| {
-        GenomicRange::new(
-            x[0].chrom(),
-            x.iter().map(|x| x.start()).min().unwrap(),
-            x.iter().map(|x| x.end()).max().unwrap(),
-        )
-    })
+pub trait SortBed: Iterator {
+    /// Sort the BED records in the iterator.
+    fn sort_bed<B>(self) -> Result<impl ExactSizeIterator + Iterator<Item = Result<B, ExternalChunkError>>, SortError>
+    where
+        Self: Iterator<Item = B> + Sized,
+        B: BEDLike + Encode + Decode<()> + Send,
+    {
+        self.sort_bed_with_options(SortBedOptions::default())
+    }
+
+    /// Sort the BED records in the iterator.
+    fn sort_bed_with_options<B>(self, opts: SortBedOptions) -> Result<impl ExactSizeIterator + Iterator<Item = Result<B, ExternalChunkError>>, SortError>
+    where
+        Self: Iterator<Item = B> + Sized,
+        B: BEDLike + Encode + Decode<()> + Send,
+    {
+        let mut sorter = ExternalSorterBuilder::new()
+            .with_chunk_size(opts.chunk_size);
+        if let Some(num_threads) = opts.num_threads {
+            sorter = sorter.num_threads(num_threads);
+        }
+        if let Some(compression) = opts.compression {
+            sorter = sorter.with_compression(compression as u32);
+        }
+        if let Some(tmp_dir) = opts.tmp_dir {
+            sorter = sorter.with_tmp_dir(tmp_dir);
+        }
+        sorter.build().unwrap().sort_by(self, |x: &B, y: &B| x.compare(y))
+    }
 }
 
-pub fn merge_sorted_bedgraph<I, V>(sorted_iter: I) -> impl Iterator<Item = BedGraph<V>>
-where
-    I: IntoIterator<Item = BedGraph<V>>,
-    V: Num + NumAssignOps + Sum + Neg<Output = V> + PartialOrd + Copy,
-{
-    merge_sorted_bed_with(sorted_iter, |bdgs| {
-        // group by start and end points
-        let point_groups = bdgs
-            .iter()
-            .flat_map(|bedgraph| {
-                [
-                    (bedgraph.start(), bedgraph.value),
-                    (bedgraph.end(), bedgraph.value.neg()),
-                ]
-            })
-            .sorted_unstable_by_key(|x| x.0)
-            .chunk_by(|x| (x.0, x.1 < V::zero()));
-        let mut point_groups = point_groups.into_iter();
-
-        let chrom = bdgs[0].chrom();
-        let ((mut prev_pos, _), first_group) = point_groups.next().unwrap();
-        let mut acc_val = first_group.into_iter().map(|x| x.1).sum();
-        let mut prev_bedgraph = BedGraph::new(chrom, prev_pos, prev_pos, acc_val);
-
-        let mut result = point_groups
-            .flat_map(|((pos, _), group)| {
-                let value_sum = group.into_iter().map(|x| x.1).sum();
-                let mut bedgraph = None;
-
-                if prev_pos != pos {
-                    if acc_val == prev_bedgraph.value {
-                        prev_bedgraph.set_end(pos);
-                    } else {
-                        bedgraph = Some(prev_bedgraph.clone());
-                        prev_bedgraph = BedGraph::new(chrom, prev_pos, pos, acc_val);
-                    }
-                }
-
-                acc_val += value_sum;
-                prev_pos = pos;
-                bedgraph
-            })
-            .collect::<Vec<_>>();
-        result.push(prev_bedgraph);
-        result
-    })
-    .flatten()
-}
+impl<T> SortBed for T where T: Iterator + ?Sized {}
 
 #[cfg(test)]
 mod bed_tests {
@@ -275,17 +337,13 @@ mod bed_tests {
         let data2 = rand_bed(100000);
 
         [data1, data2].into_iter().for_each(|mut data| {
-            let sorted1 = ExternalSorterBuilder::new()
-                .num_threads(2)
-                .with_chunk_size(10000)
-                .build()
-                .unwrap()
-                .sort(data.clone().into_iter())
+            let sorted1 = data.clone().into_iter()
+                .sort_bed()
                 .unwrap()
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap();
             let sorted2 = ExternalSorterBuilder::new()
-                .with_chunk_size(10000)
+                .with_chunk_size(1)
                 .with_compression(4)
                 .build()
                 .unwrap()
@@ -389,7 +447,11 @@ mod bed_tests {
             .map(|(a, b)| GenomicRange::new("chr1", a, b))
             .collect();
         assert_eq!(
-            merge_sorted_bed(input.clone().map(|x| x.unwrap())).collect::<Vec<_>>(),
+            input
+                .clone()
+                .map(|x| x.unwrap())
+                .merge_sorted_bed()
+                .collect::<Vec<_>>(),
             expect
         );
     }
@@ -405,7 +467,7 @@ mod bed_tests {
             BedGraph::new("chr1", 60, 65, 5),
         ];
 
-        let actual: Vec<_> = merge_sorted_bedgraph(reads).collect();
+        let actual: Vec<_> = reads.into_iter().merge_sorted_bedgraph().collect();
         let expected = vec![
             BedGraph::new("chr1", 0, 2, 2),
             BedGraph::new("chr1", 2, 30, 4),

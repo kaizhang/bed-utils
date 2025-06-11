@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
 use num::Integer;
 use num_traits::{Num, NumAssignOps, NumCast};
+use std::collections::BTreeMap;
 
-use crate::bed::{GenomicRange, BEDLike, map::GIntervalIndexSet};
+use crate::bed::{map::GIntervalIndexSet, BEDLike, GenomicRange};
 
 #[derive(Debug, Clone)]
 pub struct Coverage<'a, N> {
@@ -11,7 +11,7 @@ pub struct Coverage<'a, N> {
     coverage: Vec<N>,
 }
 
-impl <'a, N: Num + NumCast + NumAssignOps + Copy> Coverage<'a, N> {
+impl<'a, N: Num + NumCast + NumAssignOps + Copy> Coverage<'a, N> {
     pub fn new(intervals: &'a GIntervalIndexSet) -> Self {
         Self {
             total_count: 0.0,
@@ -20,9 +20,13 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> Coverage<'a, N> {
         }
     }
 
-    pub fn len(&self) -> usize { self.coverage.len() }
+    pub fn len(&self) -> usize {
+        self.coverage.len()
+    }
 
-    pub fn total_count(&self) -> f64 { self.total_count }
+    pub fn total_count(&self) -> f64 {
+        self.total_count
+    }
 
     pub fn reset(&mut self) {
         self.total_count = 0.0;
@@ -41,17 +45,17 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> Coverage<'a, N> {
         D: BEDLike,
     {
         self.total_count += <f64 as NumCast>::from(multiplicity).unwrap();
-        self.intervals.find_index_of(tag).for_each(|idx| self.coverage[idx] += multiplicity);
+        self.intervals
+            .find_index_of(tag)
+            .for_each(|idx| self.coverage[idx] += multiplicity);
     }
 
-    pub fn insert_at_index<D>(&mut self, index: usize, count: N)
-    {
+    pub fn insert_at_index<D>(&mut self, index: usize, count: N) {
         self.total_count += <f64 as NumCast>::from(count).unwrap();
         self.coverage[index] += count;
     }
 
-    pub fn regions(&self) -> impl Iterator<Item = &GenomicRange> + '_
-    {
+    pub fn regions(&self) -> impl Iterator<Item = &GenomicRange> + '_ {
         self.intervals.iter()
     }
 
@@ -59,7 +63,9 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> Coverage<'a, N> {
         self.intervals.get(index)
     }
 
-    pub fn get_coverage(&self) -> &Vec<N> { &self.coverage }
+    pub fn get_coverage(&self) -> &Vec<N> {
+        &self.coverage
+    }
 }
 
 #[derive(Clone)]
@@ -69,7 +75,7 @@ pub struct SparseCoverage<'a, N> {
     coverage: BTreeMap<usize, N>,
 }
 
-impl <'a, N: Num + NumCast + NumAssignOps + Copy> SparseCoverage<'a, N> {
+impl<'a, N: Num + NumCast + NumAssignOps + Copy> SparseCoverage<'a, N> {
     pub fn new(intervals: &'a GIntervalIndexSet) -> Self {
         Self {
             total_count: 0.0,
@@ -78,9 +84,13 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> SparseCoverage<'a, N> {
         }
     }
 
-    pub fn len(&self) -> usize { self.intervals.len() }
+    pub fn len(&self) -> usize {
+        self.intervals.len()
+    }
 
-    pub fn total_count(&self) -> f64 { self.total_count }
+    pub fn total_count(&self) -> f64 {
+        self.total_count
+    }
 
     pub fn reset(&mut self) {
         self.total_count = 0.0;
@@ -100,14 +110,19 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> SparseCoverage<'a, N> {
     {
         self.total_count += <f64 as NumCast>::from(count).unwrap();
         self.intervals.find_index_of(tag).for_each(|idx| {
-            self.coverage.entry(idx).and_modify(|x| *x += count).or_insert(count);
+            self.coverage
+                .entry(idx)
+                .and_modify(|x| *x += count)
+                .or_insert(count);
         });
     }
 
-    pub fn insert_at_index<D>(&mut self, index: usize, count: N)
-    {
+    pub fn insert_at_index<D>(&mut self, index: usize, count: N) {
         self.total_count += <f64 as NumCast>::from(count).unwrap();
-        self.coverage.entry(index).and_modify(|x| *x += count).or_insert(count);
+        self.coverage
+            .entry(index)
+            .and_modify(|x| *x += count)
+            .or_insert(count);
     }
 
     pub fn regions(&self) -> impl Iterator<Item = &GenomicRange> + '_ {
@@ -118,11 +133,15 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> SparseCoverage<'a, N> {
         self.intervals.get(index)
     }
 
-    pub fn get_coverage(&self) -> &BTreeMap<usize, N> { &self.coverage }
+    pub fn get_coverage(&self) -> &BTreeMap<usize, N> {
+        &self.coverage
+    }
 
     pub fn get_coverage_as_vec(&self) -> Vec<N> {
         let mut coverage = vec![N::zero(); self.intervals.len()];
-        self.coverage.iter().for_each(|(idx, v)| coverage[*idx] = *v);
+        self.coverage
+            .iter()
+            .for_each(|(idx, v)| coverage[*idx] = *v);
         coverage
     }
 }
@@ -136,18 +155,29 @@ pub struct BinnedCoverage<'a, N> {
     coverage: Vec<Vec<N>>,
 }
 
-impl <'a, N: Num + NumCast + NumAssignOps + Copy> BinnedCoverage<'a, N> {
+impl<'a, N: Num + NumCast + NumAssignOps + Copy> BinnedCoverage<'a, N> {
     pub fn new(intervals: &'a GIntervalIndexSet, bin_size: u64) -> Self {
-        let coverage: Vec<Vec<N>> = intervals.iter()
+        let coverage: Vec<Vec<N>> = intervals
+            .iter()
             .map(|x| vec![N::zero(); x.len().div_ceil(bin_size) as usize])
             .collect();
         let len = coverage.iter().map(|x| x.len()).sum();
-        Self {intervals, len, bin_size, coverage, consumed_tags: 0.0}
+        Self {
+            intervals,
+            len,
+            bin_size,
+            coverage,
+            consumed_tags: 0.0,
+        }
     }
 
-    pub fn len(&self) -> usize { self.len }
+    pub fn len(&self) -> usize {
+        self.len
+    }
 
-    pub fn total_count(&self) -> f64 { self.consumed_tags }
+    pub fn total_count(&self) -> f64 {
+        self.consumed_tags
+    }
 
     pub fn reset(&mut self) {
         self.consumed_tags = 0.0;
@@ -160,20 +190,24 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> BinnedCoverage<'a, N> {
     {
         self.consumed_tags += <f64 as NumCast>::from(count).unwrap();
         self.intervals.find_full(tag).for_each(|(region, out_idx)| {
-            let i = tag.start().saturating_sub(region.start()).div_floor(&self.bin_size);
+            let i = tag
+                .start()
+                .saturating_sub(region.start())
+                .div_floor(&self.bin_size);
             let j = (tag.end() - 1 - region.start())
-                .min(region.len() - 1).div_floor(&self.bin_size);
+                .min(region.len() - 1)
+                .div_floor(&self.bin_size);
             (i..=j).for_each(|in_idx| self.coverage[*out_idx][in_idx as usize] += count);
         });
     }
 
-    pub fn regions(&self) -> impl Iterator<Item = impl Iterator<Item = GenomicRange> + '_> + '_
-    {
-        self.intervals.iter()
-            .map(|x| x.split_by_len(self.bin_size))
+    pub fn regions(&self) -> impl Iterator<Item = impl Iterator<Item = GenomicRange> + '_> + '_ {
+        self.intervals.iter().map(|x| x.split_by_len(self.bin_size))
     }
 
-    pub fn get_coverage(&self) -> &Vec<Vec<N>> { &self.coverage }
+    pub fn get_coverage(&self) -> &Vec<Vec<N>> {
+        &self.coverage
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -186,24 +220,35 @@ pub struct SparseBinnedCoverage<'a, N> {
     coverage: BTreeMap<usize, N>,
 }
 
-impl <'a, N: Num + NumCast + NumAssignOps + Copy> SparseBinnedCoverage<'a, N> {
+impl<'a, N: Num + NumCast + NumAssignOps + Copy> SparseBinnedCoverage<'a, N> {
     pub fn new(intervals: &'a GIntervalIndexSet, bin_size: u64) -> Self {
         let mut len = 0;
-        let accu_size = intervals.iter().map(|x| {
-            let n = x.len().div_ceil(bin_size) as usize;
-            let output = len;
-            len += n;
-            output
-        }).collect();
+        let accu_size = intervals
+            .iter()
+            .map(|x| {
+                let n = x.len().div_ceil(bin_size) as usize;
+                let output = len;
+                len += n;
+                output
+            })
+            .collect();
         Self {
-            len, bin_size, consumed_tags: 0.0, intervals, accu_size,
-            coverage: BTreeMap::new()
+            len,
+            bin_size,
+            consumed_tags: 0.0,
+            intervals,
+            accu_size,
+            coverage: BTreeMap::new(),
         }
     }
 
-    pub fn len(&self) -> usize { self.len }
+    pub fn len(&self) -> usize {
+        self.len
+    }
 
-    pub fn total_count(&self) -> f64 { self.consumed_tags }
+    pub fn total_count(&self) -> f64 {
+        self.consumed_tags
+    }
 
     pub fn reset(&mut self) {
         self.consumed_tags = 0.0;
@@ -216,20 +261,26 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> SparseBinnedCoverage<'a, N> {
     {
         self.consumed_tags += <f64 as NumCast>::from(count).unwrap();
         self.intervals.find_full(tag).for_each(|(region, out_idx)| {
-            let i = tag.start().saturating_sub(region.start()).div_floor(&self.bin_size);
+            let i = tag
+                .start()
+                .saturating_sub(region.start())
+                .div_floor(&self.bin_size);
             let j = (tag.end() - 1 - region.start())
-                .min(region.len() - 1).div_floor(&self.bin_size);
+                .min(region.len() - 1)
+                .div_floor(&self.bin_size);
             let n = self.accu_size[*out_idx];
             (i..=j).for_each(|in_idx| {
-                let counter = self.coverage.entry(n + in_idx as usize).or_insert(N::zero());
+                let counter = self
+                    .coverage
+                    .entry(n + in_idx as usize)
+                    .or_insert(N::zero());
                 *counter += count;
             });
         });
     }
 
     pub fn regions(&self) -> impl Iterator<Item = impl Iterator<Item = GenomicRange> + '_> + '_ {
-        self.intervals.iter()
-            .map(|x| x.split_by_len(self.bin_size))
+        self.intervals.iter().map(|x| x.split_by_len(self.bin_size))
     }
 
     pub fn get_chrom(&self, index: usize) -> Option<&str> {
@@ -240,14 +291,14 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> SparseBinnedCoverage<'a, N> {
                 } else {
                     None
                 }
-            },
+            }
             Err(j) => {
                 if j - 1 < self.len {
-                    Some(self.intervals[j-1].chrom())
+                    Some(self.intervals[j - 1].chrom())
                 } else {
                     None
                 }
-            },
+            }
         }
     }
 
@@ -263,12 +314,12 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> SparseBinnedCoverage<'a, N> {
                 } else {
                     None
                 }
-            },
+            }
             Err(j) => {
                 if j - 1 < self.len {
-                    let site = &self.intervals[j-1];
+                    let site = &self.intervals[j - 1];
                     let chr = site.chrom();
-                    let prev = self.accu_size[j-1];
+                    let prev = self.accu_size[j - 1];
                     let start = site.start() + ((index - prev) as u64) * self.bin_size;
                     let end = (start + self.bin_size).min(site.end());
                     Some(GenomicRange::new(chr, start, end))
@@ -280,19 +331,23 @@ impl <'a, N: Num + NumCast + NumAssignOps + Copy> SparseBinnedCoverage<'a, N> {
         region
     }
 
-    pub fn get_coverage(&self) -> &BTreeMap<usize, N> { &self.coverage }
+    pub fn get_coverage(&self) -> &BTreeMap<usize, N> {
+        &self.coverage
+    }
 
     pub fn get_coverage_as_vec(&self) -> Vec<N> {
         let mut coverage = vec![N::zero(); self.len];
-        self.coverage.iter().for_each(|(idx, v)| coverage[*idx] = *v);
+        self.coverage
+            .iter()
+            .for_each(|(idx, v)| coverage[*idx] = *v);
         coverage
     }
 }
 
 #[cfg(test)]
 mod bed_intersect_tests {
-    use crate::bed::{merge_sorted_bed_with, merge_sorted_bedgraph, BedGraph};
     use super::*;
+    use crate::bed::{BedGraph, MergeBed};
 
     use itertools::Itertools;
     use rand::{thread_rng, Rng};
@@ -312,7 +367,9 @@ mod bed_intersect_tests {
             GenomicRange::new("chr1".to_string(), 10000, 11000),
             GenomicRange::new("chr10".to_string(), 10, 20),
             GenomicRange::new("chr1".to_string(), 200, 500),
-        ].into_iter().collect();
+        ]
+        .into_iter()
+        .collect();
         let tags: Vec<GenomicRange> = vec![
             GenomicRange::new("chr1".to_string(), 100, 210),
             GenomicRange::new("chr1".to_string(), 100, 500),
@@ -341,13 +398,7 @@ mod bed_intersect_tests {
         assert_eq!(result3, result4);
         assert_eq!(
             result3,
-            vec![
-                3, 2, 2,
-                2, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0,
-                3, 2, 2,
-            ]
+            vec![3, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 2, 2,]
         );
     }
 
@@ -357,7 +408,9 @@ mod bed_intersect_tests {
             GenomicRange::new("chr1", 0, 2000),
             GenomicRange::new("chr2", 100, 2100),
             GenomicRange::new("chr3", 3000, 3500),
-            ].into_iter().collect();
+        ]
+        .into_iter()
+        .collect();
         let mut cov = SparseBinnedCoverage::new(&regions, 400);
 
         cov.insert(&GenomicRange::new("chr1", 3, 5), 1);
@@ -369,37 +422,47 @@ mod bed_intersect_tests {
 
         assert_eq!(
             vec![(0, 1), (5, 2), (6, 1), (11, 1)],
-            cov.get_coverage().iter().map(|(i, x)| (*i, *x)).collect::<Vec<(usize, u64)>>()
+            cov.get_coverage()
+                .iter()
+                .map(|(i, x)| (*i, *x))
+                .collect::<Vec<(usize, u64)>>()
         );
 
-        let expected: Vec<_> = cov.regions().flatten().zip(
-            cov.get_coverage_as_vec().iter()
-        ).flat_map(|(region, x)| if *x == 0 {
-            None
-        } else {
-            Some((region, *x))
-        }).collect();
+        let expected: Vec<_> = cov
+            .regions()
+            .flatten()
+            .zip(cov.get_coverage_as_vec().iter())
+            .flat_map(|(region, x)| if *x == 0 { None } else { Some((region, *x)) })
+            .collect();
         assert_eq!(
             expected,
-            cov.get_coverage().iter().map(|(i, v)| (cov.get_region(*i).unwrap(), *v)).collect::<Vec<_>>(),
+            cov.get_coverage()
+                .iter()
+                .map(|(i, v)| (cov.get_region(*i).unwrap(), *v))
+                .collect::<Vec<_>>(),
         );
     }
 
     #[test]
     fn test_sparse_bin_coverage() {
         fn get_bedgraph(cov: SparseBinnedCoverage<'_, f32>) -> Vec<BedGraph<f32>> {
-            let expected: Vec<_> = cov.regions().flatten().zip(
-                cov.get_coverage_as_vec().iter()
-            ).flat_map(|(region, x)| if *x == 0.0 {
-                None
-            } else {
-                Some(BedGraph::from_bed(&region, *x))
-            }).collect();
+            let expected: Vec<_> = cov
+                .regions()
+                .flatten()
+                .zip(cov.get_coverage_as_vec().iter())
+                .flat_map(|(region, x)| {
+                    if *x == 0.0 {
+                        None
+                    } else {
+                        Some(BedGraph::from_bed(&region, *x))
+                    }
+                })
+                .collect();
             let chunks = expected.into_iter().chunk_by(|x| x.value);
             chunks
                 .into_iter()
                 .flat_map(|(_, groups)| {
-                    merge_sorted_bed_with(groups, |beds| {
+                    groups.into_iter().merge_sorted_bed_with(|beds| {
                         let mut iter = beds.into_iter();
                         let mut first = iter.next().unwrap();
                         if let Some(last) = iter.last() {
@@ -421,38 +484,47 @@ mod bed_intersect_tests {
         }
 
         fn compare(expected: Vec<BedGraph<f32>>, actual: Vec<BedGraph<f32>>) {
-            let (mis_a, mis_b): (Vec<_>, Vec<_>) = expected.into_iter().zip(actual).flat_map(|(a, b)| {
-                if a != b {
-                    Some((a,b))
-                } else {
-                    None
-                }
-            }).unzip();
-            assert!(mis_a.is_empty(), "Bin_counting: {:?}\n\nMerging: {:?}", &mis_a[..10], &mis_b[..10]);
+            let (mis_a, mis_b): (Vec<_>, Vec<_>) = expected
+                .into_iter()
+                .zip(actual)
+                .flat_map(|(a, b)| if a != b { Some((a, b)) } else { None })
+                .unzip();
+            assert!(
+                mis_a.is_empty(),
+                "Bin_counting: {:?}\n\nMerging: {:?}",
+                &mis_a[..10],
+                &mis_b[..10]
+            );
         }
 
-        let regions = [
-            GenomicRange::new("chr1", 0, 1000000),
-            ].into_iter().collect();
-        let reads = (0..100000).map(|_| rand_bedgraph("chr1"))
+        let regions = [GenomicRange::new("chr1", 0, 1000000)]
+            .into_iter()
+            .collect();
+        let reads = (0..100000)
+            .map(|_| rand_bedgraph("chr1"))
             .sorted_by(|a, b| a.compare(b))
             .collect::<Vec<_>>();
 
         let mut cov = SparseBinnedCoverage::new(&regions, 1);
         reads.iter().for_each(|x| cov.insert(x, x.value));
-        compare(get_bedgraph(cov), merge_sorted_bedgraph(reads.clone()).collect());
+        compare(
+            get_bedgraph(cov),
+            reads.clone().into_iter().merge_sorted_bedgraph().collect(),
+        );
 
         let mut cov = SparseBinnedCoverage::new(&regions, 71);
         reads.iter().for_each(|x| cov.insert(x, x.value));
         compare(
             get_bedgraph(cov),
-            merge_sorted_bedgraph(
-                reads.iter().map(|x| {
+            reads
+                .iter()
+                .map(|x| {
                     let mut x = x.clone();
                     clip(&mut x, 71);
                     x
-                }).collect::<Vec<_>>()
-            ).collect()
+                })
+                .merge_sorted_bedgraph()
+                .collect(),
         );
     }
 }

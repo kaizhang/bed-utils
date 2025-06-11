@@ -1,5 +1,5 @@
 use std::{env, error::Error, fs::File, io};
-use bed_utils::bed::{BEDLike, io::Reader, NarrowPeak, merge_sorted_bed_with};
+use bed_utils::bed::{BEDLike, io::Reader, NarrowPeak, MergeBed};
 use std::path::Path;
 use flate2::read::MultiGzDecoder;
 use bed_utils::extsort::ExternalSorterBuilder;
@@ -30,10 +30,7 @@ where
         x
     });
     let input = ExternalSorterBuilder::new().build().unwrap().sort_by(input, BEDLike::compare).unwrap();
-    merge_sorted_bed_with(
-        input.map(|x| x.unwrap()),
-        iterative_merge,
-    )
+    input.map(|x| x.unwrap()).merge_sorted_bed_with(iterative_merge)
 }
 
 pub(crate) fn open_file<P: AsRef<Path>>(file: P) -> Box<dyn std::io::Read> {
