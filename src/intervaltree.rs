@@ -350,24 +350,19 @@ impl<I: PrimInt, T> Lapper<I, T>
     where
         K: PartialEq + PartialOrd,
     {
-        if elems.is_empty() {
+        if elems.is_empty() || elems[0] >= *key {
             return 0;
+        } else if elems[elems.len() - 1] < *key {
+            return elems.len();
         }
-        if elems[0] > *key {
-            return 0;
+        let mut cursor = 0;
+        let mut length = elems.len();
+        while length > 1 {
+            let half = length >> 1;
+            length -= half;
+            cursor += (usize::from(elems[cursor + half - 1] < *key)) * half;
         }
-        let mut high = elems.len();
-        let mut low = 0;
-
-        while high - low > 1 {
-            let mid = (high + low) / 2;
-            if elems[mid] < *key {
-                low = mid;
-            } else {
-                high = mid;
-            }
-        }
-        high
+        cursor
     }
 
     /// Find the union and the intersect of two lapper objects.
@@ -515,23 +510,11 @@ impl<I: PrimInt, T> Lapper<I, T>
     #[inline]
     pub fn count(&self, start: I, stop: I) -> usize {
         let len = self.intervals.len();
-        let mut first = Self::bsearch_seq(start, &self.stops);
+        // Plus one to account for half-openness of lapper intervals compared to BITS paper
+        let first = Self::bsearch_seq(start + one::<I>(), &self.stops);
         let last = Self::bsearch_seq(stop, &self.starts);
-        //println!("{}/{}", start, stop);
-        //println!("pre start found in stops: {}: {}", first, self.stops[first]);
-        //println!("pre stop found in starts: {}", last);
-        //while last < len && self.starts[last] == stop {
-        //last += 1;
-        //}
-        while first < len && self.stops[first] == start {
-            first += 1;
-        }
         let num_cant_after = len - last;
         len - first - num_cant_after
-        //println!("{:#?}", self.starts);
-        //println!("{:#?}", self.stops);
-        //println!("start found in stops: {}", first);
-        //println!("stop found in starts: {}", last);
     }
 
     /// Find all intervals that overlap start .. stop

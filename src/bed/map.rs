@@ -1,5 +1,5 @@
 use std::ops::Index;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 
 use super::{GenomicRange, BEDLike};
 use crate::intervaltree::{Interval, IterFind, IterLapper, Lapper};
@@ -8,11 +8,12 @@ use crate::intervaltree::{Interval, IterFind, IterLapper, Lapper};
 /// for efficient queries.
 /// Note that GIntervalMap permits duplicated records.
 #[derive(Debug, Clone)]
-pub struct GIntervalMap<D>(HashMap<String, Lapper<u64, D>>);
+pub struct GIntervalMap<D>(BTreeMap<String, Lapper<u64, D>>);
 
 impl<D> GIntervalMap<D> {
+    /// Create a new empty `GIntervalMap`.
     pub fn new() -> Self {
-        Self(HashMap::new())
+        Self(BTreeMap::new())
     }
 
     /// Return the number of records.
@@ -20,6 +21,8 @@ impl<D> GIntervalMap<D> {
         self.0.values().map(|x| x.len()).sum()
     }
 
+    /// Iterate over all records in the map. The records are returned in sorted order.
+    /// The order is determined by the chromosome (string comparison) and the start position and end position of the intervals.
     pub fn iter(&self) -> Iter<'_, D> {
         Iter(self.0.iter().map(|(k, v)| (k, v.iter())).collect::<VecDeque<_>>())
     }
@@ -49,7 +52,7 @@ impl<D> GIntervalMap<D> {
 
 impl<B: BEDLike, D> FromIterator<(B, D)> for GIntervalMap<D> {
     fn from_iter<I: IntoIterator<Item = (B, D)>>(iter: I) -> Self {
-        let mut hmap: HashMap<String, Vec<_>> = HashMap::new();
+        let mut hmap: BTreeMap<String, Vec<_>> = BTreeMap::new();
         for (bed, data) in iter {
             let chr = bed.chrom();
             let interval = Interval { start: bed.start(), stop: bed.end(), val: data};
@@ -269,6 +272,21 @@ mod bed_intersect_tests {
         let result: Vec<GenomicRange> = bed_set2.into_iter().filter(|x| tree.is_overlapped(x)).collect();
         let expected = vec!["chr1:100-210".parse().unwrap()];
         assert_eq!(result, expected);
+    }
 
+    #[test]
+    fn test_iter() {
+        fn random_bed() -> GenomicRange {
+            let chrom = format!("chr{}", rand::random::<u8>() % 10 + 1);
+            let start = rand::random::<u64>() % 1000;
+            let end = start + rand::random::<u64>() % 100;
+            GenomicRange::new(&chrom, start, end)
+        }
+        let beds: Vec<_> = (0..10000).map(|_| (random_bed(), ())).collect();
+        let map: GIntervalMap<()> = beds.clone().into_iter().collect();
+        assert_eq!(
+            map.iter().map(|(g, _)| g).collect::<Vec<_>>(),
+            beds.into_iter().map(|(g, _)| g).sorted().collect::<Vec<_>>(),
+        );
     }
 }
