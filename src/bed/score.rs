@@ -4,9 +4,12 @@ use std::{error, fmt, str::FromStr};
 use std::ops::Deref;
 
 use bincode::{Decode, Encode};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 /// A BED record score.
 #[derive(Encode, Decode, Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Score(u16);
 
 impl fmt::Display for Score {

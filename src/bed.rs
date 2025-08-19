@@ -11,11 +11,15 @@ pub use strand::Strand;
 
 use std::{fmt::{self, Write}, ops::Deref, str::FromStr};
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 const DELIMITER: char = '\t';
 const MISSING_ITEM : &str = ".";
 
 /// A minimal BED record with only 3 fields.
 #[derive(Encode, Decode, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct GenomicRange(String, u64, u64);
 
 impl GenomicRange {
@@ -79,6 +83,7 @@ impl fmt::Display for GenomicRange {
 
 /// A standard BED record.
 #[derive(Encode, Decode, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct BED<const N: u8> {
     chrom: String,
     start: u64,
@@ -167,6 +172,7 @@ impl<const N: u8> FromStr for BED<N> {
 
 /// Generic BED record optional fields.
 #[derive(Encode, Decode, Clone, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct OptionalFields(Vec<String>);
 
 impl Deref for OptionalFields {
@@ -200,6 +206,7 @@ impl From<Vec<String>> for OptionalFields {
 
 /// A NarrowPeak record is a BED6+4 format that is used to store called peaks.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct NarrowPeak {
     pub chrom: String,
     pub start: u64,
@@ -292,6 +299,7 @@ impl FromStr for NarrowPeak {
 
 /// A BroadPeak record is a BED6+4 format that is used to store called peaks.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct BroadPeak {
     pub chrom: String,
     pub start: u64,
@@ -382,6 +390,7 @@ impl FromStr for BroadPeak {
 /// The bedGraph format allows display of continuous-valued data in track format.
 /// This display type is useful for probability scores and transcriptome data. 
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct BedGraph<V> {
     pub chrom: String,
     pub start: u64,

@@ -3,9 +3,12 @@
 use std::{error, fmt, str::FromStr};
 
 use bincode::{Decode, Encode};
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 /// A BED record feature strand.
 #[derive(Encode, Decode, Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum Strand {
     /// Forward (sense or coding) strand (`+`).
     Forward,
