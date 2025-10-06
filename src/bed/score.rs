@@ -8,7 +8,7 @@ use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 /// A BED record score.
-#[derive(Encode, Decode, Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Encode, Decode, Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Score(u16);
 
