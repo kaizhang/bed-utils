@@ -1,13 +1,13 @@
-use crate::extsort::merger::BinaryHeapMerger;
 use crate::extsort::chunk::{ExternalChunk, ExternalChunkError};
+use crate::extsort::merger::BinaryHeapMerger;
 
-use rayon::prelude::*;
-use std::{fmt::{self, Display}, io};
-use rayon;
-use std::error::Error;
 use bincode::{self, Decode, Encode};
+use rayon::slice::ParallelSliceMut;
 use std::{
     cmp::Ordering,
+    error::Error,
+    fmt::{self, Display},
+    io,
     path::{Path, PathBuf},
 };
 
@@ -26,8 +26,7 @@ pub enum SortError {
     DeserializationError(bincode::error::DecodeError),
 }
 
-impl Error for SortError
-{
+impl Error for SortError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(match &self {
             SortError::TempDir(err) => err,
@@ -42,11 +41,17 @@ impl Error for SortError
 impl Display for SortError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            SortError::TempDir(err) => write!(f, "temporary directory or file not created: {}", err),
-            SortError::ThreadPoolBuildError(err) => write!(f, "thread pool initialization failed: {}", err),
+            SortError::TempDir(err) => {
+                write!(f, "temporary directory or file not created: {}", err)
+            }
+            SortError::ThreadPoolBuildError(err) => {
+                write!(f, "thread pool initialization failed: {}", err)
+            }
             SortError::IO(err) => write!(f, "I/O operation failed: {}", err),
             SortError::SerializationError(err) => write!(f, "data serialization error: {}", err),
-            SortError::DeserializationError(err) => write!(f, "data deserialization error: {}", err),
+            SortError::DeserializationError(err) => {
+                write!(f, "data deserialization error: {}", err)
+            }
         }
     }
 }
@@ -132,7 +137,10 @@ impl ExternalSorter {
     ///
     /// # Arguments
     /// * `input` - Input stream data to be fetched from
-    pub fn sort<I, T>(&self, input: I) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
+    pub fn sort<I, T>(
+        &self,
+        input: I,
+    ) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
     where
         T: Encode + Decode<()> + Send + Ord,
         I: IntoIterator<Item = T>,
@@ -141,7 +149,11 @@ impl ExternalSorter {
     }
 
     /// Sorts a given iterator with a comparator function, returning a new iterator with items
-    pub fn sort_by<I, T, F>(&self, input: I, cmp: F) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
+    pub fn sort_by<I, T, F>(
+        &self,
+        input: I,
+        cmp: F,
+    ) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
     where
         T: Encode + Decode<()> + Send,
         I: IntoIterator<Item = T>,
@@ -167,7 +179,11 @@ impl ExternalSorter {
         return Ok(BinaryHeapMerger::new(num_items, external_chunks, cmp));
     }
 
-    fn create_chunk<T, F>(&self, mut buffer: Vec<T>, compare: F) -> Result<ExternalChunk<T>, SortError>
+    fn create_chunk<T, F>(
+        &self,
+        mut buffer: Vec<T>,
+        compare: F,
+    ) -> Result<ExternalChunk<T>, SortError>
     where
         T: Encode + Send,
         F: Fn(&T, &T) -> Ordering + Sync + Send,
@@ -176,8 +192,9 @@ impl ExternalSorter {
             buffer.par_sort_unstable_by(compare);
         });
 
+        let tmp_file = tempfile::tempfile_in(&self.tmp_dir).unwrap();
         let external_chunk =
-            ExternalChunk::new(&self.tmp_dir, buffer, self.compression).map_err(|err| match err {
+            ExternalChunk::new(tmp_file, buffer, self.compression).map_err(|err| match err {
                 ExternalChunkError::IO(err) => SortError::IO(err),
                 ExternalChunkError::EncodeError(err) => SortError::SerializationError(err),
                 ExternalChunkError::DecodeError(err) => SortError::DeserializationError(err),
@@ -187,9 +204,7 @@ impl ExternalSorter {
     }
 }
 
-fn _init_tmp_directory(
-    tmp_path: Option<&Path>,
-) -> io::Result<tempfile::TempDir> {
+fn _init_tmp_directory(tmp_path: Option<&Path>) -> io::Result<tempfile::TempDir> {
     if let Some(tmp_path) = tmp_path {
         tempfile::tempdir_in(tmp_path)
     } else {
@@ -197,14 +212,14 @@ fn _init_tmp_directory(
     }
 }
 
-fn _init_thread_pool(
-    threads_number: Option<usize>,
-) -> io::Result<rayon::ThreadPool> {
+fn _init_thread_pool(threads_number: Option<usize>) -> io::Result<rayon::ThreadPool> {
     let mut thread_pool_builder = rayon::ThreadPoolBuilder::new();
     if let Some(threads_number) = threads_number {
         thread_pool_builder = thread_pool_builder.num_threads(threads_number);
     }
-    thread_pool_builder.build().map_err(|x| io::Error::new(io::ErrorKind::Other, x))
+    thread_pool_builder
+        .build()
+        .map_err(|x| io::Error::new(io::ErrorKind::Other, x))
 }
 
 #[cfg(test)]

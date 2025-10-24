@@ -1,16 +1,15 @@
 //! External chunk.
 
 use bincode::{Decode, Encode};
-use lz4::{Decoder, Encoder, EncoderBuilder};
-use std::error::Error;
-use std::fmt::{self, Display};
-use std::fs::File;
-use std::io::{self, BufWriter};
-use std::io::{prelude::*, BufReader};
-use std::marker::PhantomData;
-
 use byteorder::{ReadBytesExt, WriteBytesExt};
-use tempfile;
+use lz4::{Decoder, Encoder, EncoderBuilder};
+use std::{
+    error::Error,
+    fmt::{self, Display},
+    fs::File,
+    io::{self, BufReader, BufWriter, Read, Seek, Write},
+    marker::PhantomData,
+};
 
 /// External chunk error
 #[derive(Debug)]
@@ -69,11 +68,11 @@ where
     /// * `items` - Items to be dumped to the chunk
     /// * `buf_size` - File I/O buffer size
     pub(crate) fn new(
-        dir: &tempfile::TempDir,
+        file: File,
         items: impl IntoIterator<Item = T>,
         compression: Option<u32>,
     ) -> Result<Self, ExternalChunkError> {
-        let mut builder = ExternalChunkBuilder::new(dir, compression)?;
+        let mut builder = ExternalChunkBuilder::new(file, compression)?;
         for item in items.into_iter() {
             builder.add(item)?;
         }
@@ -124,16 +123,11 @@ pub struct ExternalChunkBuilder<T> {
 }
 
 impl<T: Encode> ExternalChunkBuilder<T> {
-    pub fn new(
-        dir: &tempfile::TempDir,
-        compression: Option<u32>,
-    ) -> Result<Self, ExternalChunkError> {
-        let tmp_file = tempfile::tempfile_in(dir)?;
-
+    pub fn new(file: File, compression: Option<u32>) -> Result<Self, ExternalChunkError> {
         let writer = if let Some(lvl) = compression {
-            Ok(EncoderBuilder::new().level(lvl).build(tmp_file)?)
+            Ok(EncoderBuilder::new().level(lvl).build(file)?)
         } else {
-            Err(BufWriter::new(tmp_file))
+            Err(BufWriter::new(file))
         };
 
         Ok(Self {
@@ -198,12 +192,14 @@ mod test {
     fn test_chunk(tmp_dir: tempfile::TempDir) {
         let saved = Vec::from_iter(0..100);
 
-        let chunk: ExternalChunk<i32> = ExternalChunk::new(&tmp_dir, saved.clone(), None).unwrap();
+        let tmp_file = tempfile::tempfile_in(&tmp_dir).unwrap();
+        let chunk: ExternalChunk<i32> = ExternalChunk::new(tmp_file, saved.clone(), None).unwrap();
         let restored = chunk.collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(restored, saved);
 
+        let tmp_file = tempfile::tempfile_in(&tmp_dir).unwrap();
         let chunk: ExternalChunk<i32> =
-            ExternalChunk::new(&tmp_dir, saved.clone(), Some(3)).unwrap();
+            ExternalChunk::new(tmp_file, saved.clone(), Some(3)).unwrap();
         let restored = chunk.collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(restored, saved);
     }
