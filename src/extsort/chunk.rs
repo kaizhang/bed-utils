@@ -1,11 +1,12 @@
 //! External chunk.
 
 use bincode::{Decode, Encode};
-use lz4::{Decoder, EncoderBuilder};
+use lz4::{Decoder, Encoder, EncoderBuilder};
 use std::error::Error;
 use std::fmt::{self, Display};
-use std::io::prelude::*;
-use std::io::{self, BufReader, BufWriter};
+use std::fs::File;
+use std::io::{self, BufWriter};
+use std::io::{prelude::*, BufReader};
 use std::marker::PhantomData;
 
 use byteorder::{ReadBytesExt, WriteBytesExt};
@@ -72,49 +73,12 @@ where
         items: impl IntoIterator<Item = T>,
         compression: Option<u32>,
     ) -> Result<Self, ExternalChunkError> {
-        let mut tmp_file = tempfile::tempfile_in(dir)?;
-
-        if let Some(level) = compression {
-            let mut writer = EncoderBuilder::new()
-                .level(level)
-                .build(tmp_file.try_clone()?)?;
-            dump(&mut writer, items)?;
-            writer.finish().1?;
-        } else {
-            let mut writer = BufWriter::new(tmp_file.try_clone()?);
-            dump(&mut writer, items)?;
-            writer.flush()?;
+        let mut builder = ExternalChunkBuilder::new(dir, compression)?;
+        for item in items.into_iter() {
+            builder.add(item)?;
         }
-
-        tmp_file.rewind()?;
-        if let Some(_) = compression {
-            let reader = Box::new(Decoder::new(tmp_file)?);
-            Ok(Self {
-                reader,
-                item_type: PhantomData,
-            })
-        } else {
-            let reader = Box::new(BufReader::new(tmp_file));
-            Ok(Self {
-                reader,
-                item_type: PhantomData,
-            })
-        }
+        builder.finish()
     }
-}
-
-fn dump<T: Encode, R: Write>(
-    chunk_writer: &mut R,
-    items: impl IntoIterator<Item = T>,
-) -> Result<(), ExternalChunkError> {
-    let config = bincode::config::standard();
-    for item in items.into_iter() {
-        let result = bincode::encode_to_vec(&item, config)
-            .map_err(ExternalChunkError::from)?;
-        chunk_writer.write_u64::<byteorder::LittleEndian>(result.len() as u64)?;
-        chunk_writer.write(&result)?;
-    }
-    return Ok(());
 }
 
 impl<T> Iterator for ExternalChunk<T>
@@ -139,15 +103,10 @@ where
                         Err(err) => Some(Err(ExternalChunkError::from(err))),
                         Ok((ser, n)) => {
                             if n != length as usize {
-                                Some(Err(ExternalChunkError::IO(
-                                    io::Error::new(
-                                        io::ErrorKind::InvalidData,
-                                        format!(
-                                            "Expected {} bytes, got {}",
-                                            length, n
-                                        ),
-                                    )
-                                )))
+                                Some(Err(ExternalChunkError::IO(io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    format!("Expected {} bytes, got {}", length, n),
+                                ))))
                             } else {
                                 Some(Ok(ser))
                             }
@@ -156,6 +115,71 @@ where
                 }
             }
         }
+    }
+}
+
+pub struct ExternalChunkBuilder<T> {
+    writer: Result<Encoder<File>, BufWriter<File>>,
+    item_type: PhantomData<T>,
+}
+
+impl<T: Encode> ExternalChunkBuilder<T> {
+    pub fn new(
+        dir: &tempfile::TempDir,
+        compression: Option<u32>,
+    ) -> Result<Self, ExternalChunkError> {
+        let tmp_file = tempfile::tempfile_in(dir)?;
+
+        let writer = if let Some(lvl) = compression {
+            Ok(EncoderBuilder::new().level(lvl).build(tmp_file)?)
+        } else {
+            Err(BufWriter::new(tmp_file))
+        };
+
+        Ok(Self {
+            writer,
+            item_type: PhantomData,
+        })
+    }
+
+    pub fn add(&mut self, item: T) -> Result<(), ExternalChunkError> {
+        let result = bincode::encode_to_vec(&item, bincode::config::standard())
+            .map_err(ExternalChunkError::from)?;
+
+        self.writer.as_mut().map_or_else(
+            |w| {
+                w.write_u64::<byteorder::LittleEndian>(result.len() as u64)?;
+                w.write(&result)?;
+                Ok(())
+            },
+            |w| {
+                w.write_u64::<byteorder::LittleEndian>(result.len() as u64)?;
+                w.write(&result)?;
+                Ok(())
+            },
+        )
+    }
+
+    pub fn finish(self) -> Result<ExternalChunk<T>, ExternalChunkError> {
+        let reader: Result<Box<dyn Read>, ExternalChunkError> = self.writer.map_or_else(
+            |w| {
+                let mut file = w.into_inner().unwrap();
+                file.rewind()?;
+                let reader: Box<dyn Read> = Box::new(BufReader::new(file));
+                Ok(reader)
+            },
+            |w| {
+                let mut file = w.finish().0;
+                file.rewind()?;
+                let reader = Box::new(Decoder::new(file)?);
+                Ok(reader)
+            },
+        );
+
+        Ok(ExternalChunk {
+            reader: reader?,
+            item_type: PhantomData,
+        })
     }
 }
 
@@ -175,10 +199,12 @@ mod test {
         let saved = Vec::from_iter(0..100);
 
         let chunk: ExternalChunk<i32> = ExternalChunk::new(&tmp_dir, saved.clone(), None).unwrap();
+        let restored = chunk.collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(restored, saved);
 
-        let restored: Result<Vec<i32>, _> = chunk.collect();
-        let restored = restored.unwrap();
-
+        let chunk: ExternalChunk<i32> =
+            ExternalChunk::new(&tmp_dir, saved.clone(), Some(3)).unwrap();
+        let restored = chunk.collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(restored, saved);
     }
 }
