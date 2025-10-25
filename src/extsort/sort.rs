@@ -10,6 +10,7 @@ use std::{
     io,
     path::{Path, PathBuf},
 };
+use std::sync::{mpsc, atomic::{AtomicUsize, Ordering as AOrd}};
 
 /// Sorting error.
 #[derive(Debug)]
@@ -179,6 +180,89 @@ impl ExternalSorter {
         return Ok(BinaryHeapMerger::new(num_items, external_chunks, cmp));
     }
 
+    pub fn sort_async<I, T>(
+        &self,
+        input: I,
+    ) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
+    where
+        T: Encode + Decode<()> + Send + Ord + 'static,
+        I: IntoIterator<Item = T> + Send,
+    {
+        self.sort_by_async(input, T::cmp)
+    }
+
+    /// Sorts a given iterator with a comparator function, returning a new iterator with items
+    pub fn sort_by_async<I, T, F>(
+        &self,
+        input: I,
+        cmp: F,
+    ) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
+    where
+        T: Encode + Decode<()> + Send + 'static,
+        I: IntoIterator<Item = T> + Send,
+        F: Fn(&T, &T) -> Ordering + Sync + Send + Copy + 'static,
+    {
+        // We’ll get created chunks back through this channel.
+        let (tx, rx) = mpsc::channel::<Result<ExternalChunk<T>, SortError>>();
+
+        // Count total items without blocking chunk creation.
+        let total_items = AtomicUsize::new(0);
+
+        // We can’t move &TempDir into other threads, so use its path.
+        let tmp_dir_path: PathBuf = self.tmp_dir.path().to_path_buf();
+        let compression = self.compression;
+
+        // Run the producer (input reader) + task spawns inside the sorter’s pool.
+        self.thread_pool.install(|| {
+            rayon::scope(|scope| {
+                let mut chunk_buf: Vec<T> = Vec::with_capacity(self.chunk_size);
+
+                for item in input.into_iter() {
+                    total_items.fetch_add(1, AOrd::Relaxed);
+                    chunk_buf.push(item);
+
+                    if chunk_buf.len() >= self.chunk_size {
+                        // Hand off the full buffer to a background task.
+                        let buf = std::mem::take(&mut chunk_buf);
+                        let txc = tx.clone();
+                        let dir = tmp_dir_path.clone();
+
+                        scope.spawn(move |_| {
+                            let res = create_chunk_from_parts(buf, cmp, &dir, compression);
+                            // Ignore send errors only if the receiver is already gone.
+                            let _ = txc.send(res);
+                        });
+                    }
+                }
+
+                // Flush remaining partial buffer (if any).
+                if !chunk_buf.is_empty() {
+                    let buf = std::mem::take(&mut chunk_buf);
+                    let txc = tx.clone();
+                    let dir = tmp_dir_path.clone();
+
+                    scope.spawn(move |_| {
+                        let res = create_chunk_from_parts(buf, cmp, &dir, compression);
+                        let _ = txc.send(res);
+                    });
+                }
+
+                // All tasks are spawned; dropping our last sender end allows the receiver loop to finish.
+                drop(tx);
+            });
+        });
+
+        // Collect finished on-disk chunks (this blocks only after all spawns are issued).
+        let mut external_chunks: Vec<ExternalChunk<T>> = Vec::new();
+        for res in rx {
+            external_chunks.push(res?);
+        }
+
+        let num_items = total_items.load(AOrd::Relaxed);
+        Ok(BinaryHeapMerger::new(num_items, external_chunks, cmp))
+ 
+    }
+
     fn create_chunk<T, F>(
         &self,
         mut buffer: Vec<T>,
@@ -202,6 +286,26 @@ impl ExternalSorter {
 
         return Ok(external_chunk);
     }
+}
+
+/// Helper used by background tasks: sort a buffer and spill it to a temp file in `tmp_dir`.
+fn create_chunk_from_parts<T, F>(
+    mut buffer: Vec<T>,
+    compare: F,
+    tmp_dir: &std::path::Path,
+    compression: Option<u32>,
+) -> Result<ExternalChunk<T>, SortError>
+where
+    T: Encode + Send + 'static,
+    F: Fn(&T, &T) -> Ordering + Sync + Send + Copy + 'static,
+{
+    buffer.sort_unstable_by(compare);
+    let tmp_file = tempfile::tempfile_in(tmp_dir).map_err(SortError::IO)?;
+    ExternalChunk::new(tmp_file, buffer, compression).map_err(|err| match err {
+        ExternalChunkError::IO(e) => SortError::IO(e),
+        ExternalChunkError::EncodeError(e) => SortError::SerializationError(e),
+        ExternalChunkError::DecodeError(e) => SortError::DeserializationError(e),
+    })
 }
 
 fn _init_tmp_directory(tmp_path: Option<&Path>) -> io::Result<tempfile::TempDir> {
@@ -252,16 +356,17 @@ mod test {
             |a: &i32, b: &i32| a.cmp(b)
         };
 
-        let result = sorter.sort_by(input, compare).unwrap();
 
-        let actual_result: Result<Vec<i32>, _> = result.collect();
-        let actual_result = actual_result.unwrap();
         let expected_result = if reversed {
             Vec::from_iter(input_sorted.clone().rev())
         } else {
             Vec::from_iter(input_sorted.clone())
         };
 
-        assert_eq!(actual_result, expected_result)
+        let result = sorter.sort_by(input.clone(), compare).unwrap();
+        assert_eq!(result.collect::<Result<Vec<_>, _>>().unwrap(), expected_result);
+
+        let result = sorter.sort_by_async(input, compare).unwrap();
+        assert_eq!(result.collect::<Result<Vec<_>, _>>().unwrap(), expected_result);
     }
 }

@@ -53,7 +53,7 @@ impl Display for ExternalChunkError {
 
 /// External chunk interface. Provides methods for creating a chunk stored on file system and reading data from it.
 pub struct ExternalChunk<T> {
-    reader: Box<dyn Read>,
+    reader: Box<dyn Read + Send>,
     item_type: PhantomData<T>,
 }
 
@@ -155,11 +155,11 @@ impl<T: Encode> ExternalChunkBuilder<T> {
     }
 
     pub fn finish(self) -> Result<ExternalChunk<T>, ExternalChunkError> {
-        let reader: Result<Box<dyn Read>, ExternalChunkError> = self.writer.map_or_else(
+        let reader: Result<Box<dyn Read + Send>, ExternalChunkError> = self.writer.map_or_else(
             |w| {
                 let mut file = w.into_inner().unwrap();
                 file.rewind()?;
-                let reader: Box<dyn Read> = Box::new(BufReader::new(file));
+                let reader: Box<dyn Read + Send> = Box::new(BufReader::new(file));
                 Ok(reader)
             },
             |w| {
