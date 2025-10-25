@@ -186,7 +186,7 @@ impl ExternalSorter {
     ) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
     where
         T: Encode + Decode<()> + Send + Ord + 'static,
-        I: IntoIterator<Item = T> + Send,
+        I: IntoIterator<Item = T>,
     {
         self.sort_by_async(input, T::cmp)
     }
@@ -198,69 +198,63 @@ impl ExternalSorter {
         cmp: F,
     ) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
     where
+        I: IntoIterator<Item = T>,
         T: Encode + Decode<()> + Send + 'static,
-        I: IntoIterator<Item = T> + Send,
         F: Fn(&T, &T) -> Ordering + Sync + Send + Copy + 'static,
     {
         // We’ll get created chunks back through this channel.
         let (tx, rx) = mpsc::channel::<Result<ExternalChunk<T>, SortError>>();
 
-        // Count total items without blocking chunk creation.
-        let total_items = AtomicUsize::new(0);
-
-        // We can’t move &TempDir into other threads, so use its path.
+        let num_items = AtomicUsize::new(0);
         let tmp_dir_path: PathBuf = self.tmp_dir.path().to_path_buf();
         let compression = self.compression;
 
-        // Run the producer (input reader) + task spawns inside the sorter’s pool.
-        self.thread_pool.install(|| {
-            rayon::scope(|scope| {
-                let mut chunk_buf: Vec<T> = Vec::with_capacity(self.chunk_size);
+        // PRODUCER: runs on the caller’s thread -> iterator never crosses threads.
+        let mut buf: Vec<T> = Vec::with_capacity(self.chunk_size);
 
-                for item in input.into_iter() {
-                    total_items.fetch_add(1, AOrd::Relaxed);
-                    chunk_buf.push(item);
+        for item in input.into_iter() {
+            num_items.fetch_add(1, AOrd::Relaxed);
+            buf.push(item);
+            if buf.len() >= self.chunk_size {
+                let chunk = std::mem::take(&mut buf);
+                let txc = tx.clone();
+                let tmp = tmp_dir_path.clone();
+                let cmp_c = cmp;
 
-                    if chunk_buf.len() >= self.chunk_size {
-                        // Hand off the full buffer to a background task.
-                        let buf = std::mem::take(&mut chunk_buf);
-                        let txc = tx.clone();
-                        let dir = tmp_dir_path.clone();
+                // Spawn background job on *your* pool.
+                self.thread_pool.spawn(move || {
+                    let res = create_chunk_from_parts(chunk, cmp_c, &tmp, compression);
+                    let _ = txc.send(res);
+                });
+            }
+        }
 
-                        scope.spawn(move |_| {
-                            let res = create_chunk_from_parts(buf, cmp, &dir, compression);
-                            // Ignore send errors only if the receiver is already gone.
-                            let _ = txc.send(res);
-                        });
-                    }
-                }
+        if !buf.is_empty() {
+            let chunk = std::mem::take(&mut buf);
+            let txc = tx.clone();
+            let tmp = tmp_dir_path.clone();
+            let cmp_c = cmp;
 
-                // Flush remaining partial buffer (if any).
-                if !chunk_buf.is_empty() {
-                    let buf = std::mem::take(&mut chunk_buf);
-                    let txc = tx.clone();
-                    let dir = tmp_dir_path.clone();
-
-                    scope.spawn(move |_| {
-                        let res = create_chunk_from_parts(buf, cmp, &dir, compression);
-                        let _ = txc.send(res);
-                    });
-                }
-
-                // All tasks are spawned; dropping our last sender end allows the receiver loop to finish.
-                drop(tx);
+            self.thread_pool.spawn(move || {
+                let res = create_chunk_from_parts(chunk, cmp_c, &tmp, compression);
+                let _ = txc.send(res);
             });
-        });
+        }
 
-        // Collect finished on-disk chunks (this blocks only after all spawns are issued).
-        let mut external_chunks: Vec<ExternalChunk<T>> = Vec::new();
-        for res in rx {
+        // Drop last sender so rx finishes once all tasks send their result.
+        drop(tx);
+
+        // CONSUMER: collect finished chunks (blocks only until workers complete).
+        let mut external_chunks = Vec::new();
+        for res in rx.iter() {
             external_chunks.push(res?);
         }
 
-        let num_items = total_items.load(AOrd::Relaxed);
-        Ok(BinaryHeapMerger::new(num_items, external_chunks, cmp))
- 
+        Ok(BinaryHeapMerger::new(
+            num_items.load(AOrd::Relaxed),
+            external_chunks,
+            cmp,
+        ))
     }
 
     fn create_chunk<T, F>(
