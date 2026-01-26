@@ -1,13 +1,13 @@
 //! External chunk.
 
-use bincode::{Decode, Encode};
+use bitcode::{DecodeOwned, Encode};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use lz4::{Decoder, Encoder, EncoderBuilder};
 use std::{
     error::Error,
     fmt::{self, Display},
     fs::File,
-    io::{self, BufReader, BufWriter, Read, Seek, Write},
+    io::{self, Read, Seek, Write},
     marker::PhantomData,
 };
 
@@ -17,8 +17,7 @@ pub enum ExternalChunkError {
     /// Common I/O error.
     IO(io::Error),
     /// Data serialization error.
-    EncodeError(bincode::error::EncodeError),
-    DecodeError(bincode::error::DecodeError),
+    EncodeError(bitcode::Error),
 }
 
 impl From<io::Error> for ExternalChunkError {
@@ -27,15 +26,9 @@ impl From<io::Error> for ExternalChunkError {
     }
 }
 
-impl From<bincode::error::EncodeError> for ExternalChunkError {
-    fn from(err: bincode::error::EncodeError) -> Self {
+impl From<bitcode::Error> for ExternalChunkError {
+    fn from(err: bitcode::Error) -> Self {
         ExternalChunkError::EncodeError(err)
-    }
-}
-
-impl From<bincode::error::DecodeError> for ExternalChunkError {
-    fn from(err: bincode::error::DecodeError) -> Self {
-        ExternalChunkError::DecodeError(err)
     }
 }
 
@@ -46,14 +39,13 @@ impl Display for ExternalChunkError {
         match self {
             ExternalChunkError::IO(err) => write!(f, "{}", err),
             ExternalChunkError::EncodeError(err) => write!(f, "{}", err),
-            ExternalChunkError::DecodeError(err) => write!(f, "{}", err),
         }
     }
 }
 
 /// External chunk interface. Provides methods for creating a chunk stored on file system and reading data from it.
 pub struct ExternalChunk<T> {
-    reader: Box<dyn Read + Send>,
+    reader: Decoder<File>,
     item_type: PhantomData<T>,
 }
 
@@ -70,7 +62,7 @@ where
     pub(crate) fn new(
         file: File,
         items: impl IntoIterator<Item = T>,
-        compression: Option<u32>,
+        compression: u32,
     ) -> Result<Self, ExternalChunkError> {
         let mut builder = ExternalChunkBuilder::new(file, compression)?;
         for item in items.into_iter() {
@@ -82,7 +74,7 @@ where
 
 impl<T> Iterator for ExternalChunk<T>
 where
-    T: Decode<()>,
+    T: DecodeOwned,
 {
     type Item = Result<T, ExternalChunkError>;
 
@@ -93,23 +85,13 @@ where
                 _ => Some(Err(ExternalChunkError::IO(err))),
             },
             Ok(length) => {
-                let config = bincode::config::standard();
                 let mut buf = vec![0u8; length as usize];
                 if let Err(err) = self.reader.read_exact(buf.as_mut()) {
                     return Some(Err(ExternalChunkError::IO(err)));
                 } else {
-                    match bincode::decode_from_slice(&buf, config) {
+                    match bitcode::decode::<T>(&buf) {
                         Err(err) => Some(Err(ExternalChunkError::from(err))),
-                        Ok((ser, n)) => {
-                            if n != length as usize {
-                                Some(Err(ExternalChunkError::IO(io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    format!("Expected {} bytes, got {}", length, n),
-                                ))))
-                            } else {
-                                Some(Ok(ser))
-                            }
-                        }
+                        Ok(ser) => Some(Ok(ser)),
                     }
                 }
             }
@@ -118,18 +100,13 @@ where
 }
 
 pub struct ExternalChunkBuilder<T> {
-    writer: Result<Encoder<File>, BufWriter<File>>,
+    writer: Encoder<File>,
     item_type: PhantomData<T>,
 }
 
 impl<T: Encode> ExternalChunkBuilder<T> {
-    pub fn new(file: File, compression: Option<u32>) -> Result<Self, ExternalChunkError> {
-        let writer = if let Some(lvl) = compression {
-            Ok(EncoderBuilder::new().level(lvl).build(file)?)
-        } else {
-            Err(BufWriter::new(file))
-        };
-
+    pub fn new(file: File, compression: u32) -> Result<Self, ExternalChunkError> {
+        let writer = EncoderBuilder::new().level(compression).build(file)?;
         Ok(Self {
             writer,
             item_type: PhantomData,
@@ -137,41 +114,19 @@ impl<T: Encode> ExternalChunkBuilder<T> {
     }
 
     pub fn add(&mut self, item: T) -> Result<(), ExternalChunkError> {
-        let result = bincode::encode_to_vec(&item, bincode::config::standard())
-            .map_err(ExternalChunkError::from)?;
-
-        self.writer.as_mut().map_or_else(
-            |w| {
-                w.write_u64::<byteorder::LittleEndian>(result.len() as u64)?;
-                w.write(&result)?;
-                Ok(())
-            },
-            |w| {
-                w.write_u64::<byteorder::LittleEndian>(result.len() as u64)?;
-                w.write(&result)?;
-                Ok(())
-            },
-        )
+        let result = bitcode::encode(&item);
+        self.writer.write_u64::<byteorder::LittleEndian>(result.len() as u64)?;
+        self.writer.write(&result)?;
+        Ok(())
     }
 
     pub fn finish(self) -> Result<ExternalChunk<T>, ExternalChunkError> {
-        let reader: Result<Box<dyn Read + Send>, ExternalChunkError> = self.writer.map_or_else(
-            |w| {
-                let mut file = w.into_inner().unwrap();
-                file.rewind()?;
-                let reader: Box<dyn Read + Send> = Box::new(BufReader::new(file));
-                Ok(reader)
-            },
-            |w| {
-                let mut file = w.finish().0;
-                file.rewind()?;
-                let reader = Box::new(Decoder::new(file)?);
-                Ok(reader)
-            },
-        );
+        let mut file = self.writer.finish().0;
+        file.rewind()?;
+        let reader = Decoder::new(file)?;
 
         Ok(ExternalChunk {
-            reader: reader?,
+            reader,
             item_type: PhantomData,
         })
     }
@@ -193,13 +148,13 @@ mod test {
         let saved = Vec::from_iter(0..100);
 
         let tmp_file = tempfile::tempfile_in(&tmp_dir).unwrap();
-        let chunk: ExternalChunk<i32> = ExternalChunk::new(tmp_file, saved.clone(), None).unwrap();
+        let chunk: ExternalChunk<i32> = ExternalChunk::new(tmp_file, saved.clone(), 0).unwrap();
         let restored = chunk.collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(restored, saved);
 
         let tmp_file = tempfile::tempfile_in(&tmp_dir).unwrap();
         let chunk: ExternalChunk<i32> =
-            ExternalChunk::new(tmp_file, saved.clone(), Some(3)).unwrap();
+            ExternalChunk::new(tmp_file, saved.clone(), 3).unwrap();
         let restored = chunk.collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(restored, saved);
     }

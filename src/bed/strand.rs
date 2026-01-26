@@ -2,7 +2,7 @@
 
 use std::{error, fmt, str::FromStr};
 
-use bincode::{Decode, Encode};
+use bitcode::{Decode, Encode};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 

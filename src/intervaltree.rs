@@ -75,7 +75,7 @@
 //!    }
 //!    assert_eq!(sim, 4);
 //! ```
-use bincode::{Decode, Encode};
+use bitcode::{Decode, Encode};
 use num_traits::{identities::{one, zero}, PrimInt};
 use std::cmp::Ordering::{self};
 use std::collections::VecDeque;
@@ -1318,9 +1318,8 @@ mod tests {
         ];
         let lapper = Lapper::new(data);
 
-        let config = bincode::config::standard();
-        let ser = bincode::encode_to_vec(&lapper, config).unwrap();
-        let deser: Lapper<usize, u32> = bincode::decode_from_slice(&ser, config).unwrap().0;
+        let ser = bitcode::encode(&lapper);
+        let deser: Lapper<usize, u32> = bitcode::decode(&ser).unwrap();
 
         let found = deser.find(28974798, 33141355).collect::<Vec<&Iv>>();
         assert_eq!(found, vec![

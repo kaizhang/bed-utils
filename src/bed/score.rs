@@ -3,7 +3,7 @@
 use std::{error, fmt, str::FromStr};
 use std::ops::Deref;
 
-use bincode::{Decode, Encode};
+use bitcode::{Decode, Encode};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 

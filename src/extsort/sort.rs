@@ -1,7 +1,7 @@
 use crate::extsort::chunk::{ExternalChunk, ExternalChunkError};
 use crate::extsort::merger::BinaryHeapMerger;
 
-use bincode::{self, Decode, Encode};
+use bitcode::{self, DecodeOwned, Encode};
 use rayon::slice::ParallelSliceMut;
 use std::{
     cmp::Ordering,
@@ -22,9 +22,7 @@ pub enum SortError {
     /// Common I/O error.
     IO(io::Error),
     /// Data serialization error.
-    SerializationError(bincode::error::EncodeError),
-    /// Data deserialization error.
-    DeserializationError(bincode::error::DecodeError),
+    SerializationError(bitcode::Error),
 }
 
 impl Error for SortError {
@@ -34,7 +32,6 @@ impl Error for SortError {
             SortError::ThreadPoolBuildError(err) => err,
             SortError::IO(err) => err,
             SortError::SerializationError(err) => err,
-            SortError::DeserializationError(err) => err,
         })
     }
 }
@@ -50,9 +47,6 @@ impl Display for SortError {
             }
             SortError::IO(err) => write!(f, "I/O operation failed: {}", err),
             SortError::SerializationError(err) => write!(f, "data serialization error: {}", err),
-            SortError::DeserializationError(err) => {
-                write!(f, "data deserialization error: {}", err)
-            }
         }
     }
 }
@@ -64,7 +58,7 @@ pub struct ExternalSorterBuilder {
     chunk_size: usize,
     tmp_dir: Option<PathBuf>,
     num_threads: Option<usize>,
-    compression: Option<u32>,
+    compression: u32,
 }
 
 impl ExternalSorterBuilder {
@@ -73,7 +67,7 @@ impl ExternalSorterBuilder {
             chunk_size: 50000000,
             tmp_dir: None,
             num_threads: None,
-            compression: None,
+            compression: 1,
         }
     }
 
@@ -100,7 +94,7 @@ impl ExternalSorterBuilder {
     /// Sets the compression level (1-16) to be used when writing sorted segments to
     /// disk.
     pub fn with_compression(mut self, level: u32) -> Self {
-        self.compression = Some(level);
+        self.compression = level;
         self
     }
 
@@ -125,7 +119,7 @@ impl ExternalSorterBuilder {
 
 pub struct ExternalSorter {
     chunk_size: usize,
-    compression: Option<u32>,
+    compression: u32,
     /// Sorting thread pool.
     thread_pool: rayon::ThreadPool,
     /// Directory to be used to store temporary data.
@@ -143,7 +137,7 @@ impl ExternalSorter {
         input: I,
     ) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
     where
-        T: Encode + Decode<()> + Send + Ord,
+        T: Encode + DecodeOwned + Send + Ord,
         I: IntoIterator<Item = T>,
     {
         self.sort_by(input, T::cmp)
@@ -156,7 +150,7 @@ impl ExternalSorter {
         cmp: F,
     ) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
     where
-        T: Encode + Decode<()> + Send,
+        T: Encode + DecodeOwned + Send,
         I: IntoIterator<Item = T>,
         F: Fn(&T, &T) -> Ordering + Sync + Send + Copy,
     {
@@ -185,7 +179,7 @@ impl ExternalSorter {
         input: I,
     ) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
     where
-        T: Encode + Decode<()> + Send + Ord + 'static,
+        T: Encode + DecodeOwned + Send + Ord + 'static,
         I: IntoIterator<Item = T>,
     {
         self.sort_by_async(input, T::cmp)
@@ -199,7 +193,7 @@ impl ExternalSorter {
     ) -> Result<impl ExactSizeIterator<Item = Result<T, ExternalChunkError>>, SortError>
     where
         I: IntoIterator<Item = T>,
-        T: Encode + Decode<()> + Send + 'static,
+        T: Encode + DecodeOwned + Send + 'static,
         F: Fn(&T, &T) -> Ordering + Sync + Send + Copy + 'static,
     {
         // We’ll get created chunks back through this channel.
@@ -275,7 +269,6 @@ impl ExternalSorter {
             ExternalChunk::new(tmp_file, buffer, self.compression).map_err(|err| match err {
                 ExternalChunkError::IO(err) => SortError::IO(err),
                 ExternalChunkError::EncodeError(err) => SortError::SerializationError(err),
-                ExternalChunkError::DecodeError(err) => SortError::DeserializationError(err),
             })?;
 
         return Ok(external_chunk);
@@ -287,7 +280,7 @@ fn create_chunk_from_parts<T, F>(
     mut buffer: Vec<T>,
     compare: F,
     tmp_dir: &std::path::Path,
-    compression: Option<u32>,
+    compression: u32,
 ) -> Result<ExternalChunk<T>, SortError>
 where
     T: Encode + Send + 'static,
@@ -298,7 +291,6 @@ where
     ExternalChunk::new(tmp_file, buffer, compression).map_err(|err| match err {
         ExternalChunkError::IO(e) => SortError::IO(e),
         ExternalChunkError::EncodeError(e) => SortError::SerializationError(e),
-        ExternalChunkError::DecodeError(e) => SortError::DeserializationError(e),
     })
 }
 

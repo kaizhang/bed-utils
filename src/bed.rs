@@ -4,7 +4,7 @@ pub mod map;
 mod bed_trait;
 pub use bed_trait::*;
 mod score;
-use bincode::{Decode, Encode};
+use bitcode::{Decode, Encode};
 pub use score::Score;
 mod strand;
 pub use strand::Strand;

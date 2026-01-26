@@ -1,4 +1,4 @@
-use bincode::{Decode, Encode};
+use bitcode::{DecodeOwned, Encode};
 use itertools::Itertools;
 use num::Num;
 use num_traits::NumAssignOps;
@@ -275,7 +275,7 @@ pub trait SortBed: Iterator {
     fn sort_bed<B>(self) -> Result<impl ExactSizeIterator + Iterator<Item = Result<B, ExternalChunkError>>, SortError>
     where
         Self: Iterator<Item = B> + Sized,
-        B: BEDLike + Encode + Decode<()> + Send,
+        B: BEDLike + Encode + DecodeOwned + Send,
     {
         self.sort_bed_with_options(SortBedOptions::default())
     }
@@ -284,7 +284,7 @@ pub trait SortBed: Iterator {
     fn sort_bed_with_options<B>(self, opts: SortBedOptions) -> Result<impl ExactSizeIterator + Iterator<Item = Result<B, ExternalChunkError>>, SortError>
     where
         Self: Iterator<Item = B> + Sized,
-        B: BEDLike + Encode + Decode<()> + Send,
+        B: BEDLike + Encode + DecodeOwned + Send,
     {
         let mut sorter = ExternalSorterBuilder::new()
             .with_chunk_size(opts.chunk_size);
