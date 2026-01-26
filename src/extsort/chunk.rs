@@ -70,6 +70,19 @@ where
         }
         builder.finish()
     }
+
+    ///  Open an existing chunk from file.
+    pub fn open(file: File) -> Result<Self, ExternalChunkError> {
+        let reader = Decoder::new(file)?;
+        Ok(Self {
+            reader,
+            item_type: PhantomData,
+        })
+    }
+
+    pub fn into_inner(self) -> File {
+        self.reader.finish().0
+    }
 }
 
 impl<T> Iterator for ExternalChunk<T>
