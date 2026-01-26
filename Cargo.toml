@@ -1,7 +1,7 @@
 [package]
 name = "bed-utils"
 description = "Utilities for manipulating genomic range objects"
-version = "0.10.0"
+version = "0.10.1"
 edition = "2021"
 rust-version = "1.76"
 authors = ["Kai Zhang <kai@kzhang.org>"]
