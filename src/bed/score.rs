@@ -48,8 +48,7 @@ impl FromStr for Score {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let n: u32 = lexical::parse(s).map_err(ParseError::Parse)?;
-        Ok(Self::try_from(n).unwrap_or(Score(1000)))
-        //map_err(ParseError::Invalid)
+        Self::try_from(n).map_err(ParseError::Invalid)
     }
 }
 
@@ -69,19 +68,15 @@ impl TryFrom<u32> for Score {
     type Error = TryFromIntError;
 
     fn try_from(n: u32) -> Result<Self, Self::Error> {
-        if n > 1000 {
-            Err(TryFromIntError(n))
-        } else {
-            Ok(Self(n as u16))
-        }
+        u16::try_from(n)
+            .map(|n| Self(n))
+            .map_err(|_| TryFromIntError(n))
     }
 }
 
-impl TryFrom<u16> for Score {
-    type Error = TryFromIntError;
-
-    fn try_from(n: u16) -> Result<Self, Self::Error> {
-        Self::try_from(n as u32)
+impl From<u16> for Score {
+    fn from(n: u16) -> Self {
+        Self(n)
     }
 }
 
@@ -105,6 +100,7 @@ mod tests {
     fn test_try_from_u16_for_score() {
         assert_eq!(Score::try_from(1u16), Ok(Score(1)));
         assert_eq!(Score::try_from(1000u16), Ok(Score(1000)));
+        assert_eq!(Score::try_from(2000u16), Ok(Score(2000)));
     }
 
     #[test]
